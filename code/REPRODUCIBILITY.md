@@ -54,8 +54,12 @@ run completeness and numerical agreement are separate checks.
 required public inputs in an empty temporary cache, estimates the three panels
 and invokes `check_results.py --strict`. CI uses this command with CLARABEL.
 
-A fresh run using only bundled public inputs reproduced all 15 reference fields
-exactly: two point estimates and N/T/M for countries, banks and country equity
+Size sorting and LPT scheduling preserve panel order within equal-size ties;
+equal bucket loads select the lowest bucket index. The bank reference uses this
+explicit rule, avoiding the platform-dependent tie ordering of an unstable sort.
+
+A fresh run using only bundled public inputs matched all 15 reference fields
+within their stated tolerances: two point estimates and N/T/M for countries, banks and country equity
 markets. All five raw-source hashes matched the reference. This check used 12
 bootstrap draws to exercise the estimation path; it does not validate the
 paper's full inference run or its confidence intervals.

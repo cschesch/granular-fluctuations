@@ -28,11 +28,12 @@
       "file": "additional_applications_summary.pkl",
       "source": "FDIC BankFind Suite quarterly financials",
       "sample": "1999Q4–2025Q4 levels; quarter-on-quarter growth 2000Q1–2025Q4",
+      "grouping": "Stable descending size order; equal sizes retain panel order, and equal bucket loads use the lowest bucket index.",
       "inputs": {
         "data/fdic/fdic_quarterly_financials_1999q4_2025q4.csv": "1d88059eca85ab1b77fa67990ce08c176f970c53eba90383e668586d2d5e1905"
       },
       "values": {
-        "MGP_share": 0.3557119528293049,
+        "MGP_share": 0.35587841069573717,
         "Naive_homoscedastic": 0.6676072528273539,
         "N": 3853,
         "T": 104,

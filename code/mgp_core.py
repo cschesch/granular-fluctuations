@@ -130,13 +130,13 @@ def installed_solvers() -> set[str]:
 def align_sizes_to_panel(y: pd.DataFrame, sizes: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
     """Drop invalid sizes and sort units by decreasing size.
 
-    This fixes the unit order used by LPT.
+    Equal sizes retain panel order, fixing the tie order used by LPT.
     """
     sizes = sizes.reindex(y.index).astype(float)
     keep = sizes.gt(0) & np.isfinite(sizes)
     y = y.loc[keep]
     sizes = sizes.loc[keep]
-    y = y.loc[sizes.sort_values(ascending=False).index]
+    y = y.loc[sizes.sort_values(ascending=False, kind="stable").index]
     return y, sizes.loc[y.index]
 
 
@@ -169,8 +169,8 @@ def make_panel_contiguous(d: pd.DataFrame, time_var: str, unit_var: str) -> pd.D
 
 
 def lpt_buckets(job_sizes: np.ndarray, m: int) -> tuple[list[list[int]], np.ndarray]:
-    """Longest-processing-time scheduling: assign each job to the lightest bucket."""
-    order = np.argsort(job_sizes)[::-1]
+    """Assign largest jobs first; break job ties by input order and bucket ties by index."""
+    order = np.argsort(-job_sizes, kind="stable")
     loads = np.zeros(m)
     buckets: list[list[int]] = [[] for _ in range(m)]
     for i in order:
