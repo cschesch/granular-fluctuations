@@ -4,12 +4,12 @@ Use Python 3.11 in a virtual environment.
 
 ```sh
 python -m pip install -r code/requirements.txt
-make -C code data
 make -C code all
 python code/verify_release.py
 ```
 
-`output/` holds the paper exhibits. Missing data or optional source tools leave
+Public input snapshots are bundled; no data download step is needed.
+`output/` holds the paper exhibits. Missing licensed data or optional source tools leave
 estimates blank while retaining the exhibit layout. See [data sources](data/README.md).
 Foerster preprocessing uses Octave and Dynare's `gensys.m` (`GENSYS_DIR`). Atalay
 preprocessing uses Stata with `hprescott` and MATLAB with its Statistics toolbox.

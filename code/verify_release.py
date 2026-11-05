@@ -2,7 +2,6 @@
 
 import argparse
 import hashlib
-import json
 from pathlib import Path
 
 
@@ -64,9 +63,7 @@ def main() -> None:
             digest, name = line.split("  ", 1)
             expected[name] = digest
         differing = [name for name, digest in expected.items() if hashes.get(name) != digest]
-        downloads = root / "data/downloads.json"
-        allowed = {entry["path"]: entry["sha256"] for entry in json.loads(downloads.read_text()).values()} if downloads.is_file() else {}
-        differing.extend(name for name in hashes.keys() - expected.keys() if hashes[name] != allowed.get(name))
+        differing.extend(hashes.keys() - expected.keys())
         if differing:
             raise ValueError(f"Release hashes differ: {sorted(differing)}")
     print(f"Verified {len(hashes)} SHA-256 hashes.")

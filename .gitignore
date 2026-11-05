@@ -37,7 +37,3 @@ __pycache__/
 !/data/forbes_billionaires/archive_cdx_daily.csv
 /data/forbes_billionaires/raw*/
 /data/forbes_billionaires/archive_fetch_summary*.csv
-/data/additional_applications/raw/french_country_returns/F-F*.zip
-/data/additional_applications/raw/kpss_extended/*.zip
-/data/additional_applications/raw/patent-firm-link-share/firm_year_panel_public.csv
-/data/additional_applications/raw/owid_energy_data.csv

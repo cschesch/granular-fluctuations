@@ -6,7 +6,7 @@ export OPENBLAS_NUM_THREADS := 1
 export OMP_NUM_THREADS := 1
 export MPLCONFIGDIR := $(CURDIR)/.cache/matplotlib
 
-.PHONY: all applications variations simulations empirical test check collect syncdraft data verify
+.PHONY: all applications variations simulations empirical test check collect syncdraft verify
 
 all:
 	mkdir -p .cache
@@ -16,9 +16,6 @@ all:
 
 applications variations simulations empirical:
 	$(PYTHON) paper_applications.py $@
-
-data:
-	$(PYTHON) ../data/download_public.py
 
 verify:
 	$(PYTHON) verify_release.py
