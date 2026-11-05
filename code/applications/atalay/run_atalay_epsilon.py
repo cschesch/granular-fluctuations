@@ -18,7 +18,6 @@ from factor_rank import factor_rank_tests
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
-    OUTPUT_DIR,
     ROOT,
     RUN_OUTPUT_CACHE,
     align_sizes_to_panel,
@@ -26,27 +25,23 @@ from mgp_core import (
     choose_solver,
     default_subsample_length,
     make_panel_rng,
-    plot_lpt_squared_bucket_sizes,
     regularity_report,
     sample_cov,
 )
 from applications.foerster.run_foerster_epsilon import (
     cap_dynamic_share_report,
-    network_bias_terms,
     network_gradient_family,
     network_observed_stats,
     resample_network_mgp,
     subsample_network_mgp,
 )
 from applications.panels import SourcePanel
-from run_multi_source import lpt_diagnostics, output_prefix
+from run_multi_source import output_prefix
 
 
 DERIVED = ROOT / "code/.cache/derived/atalay2017"
 DEFAULT_SHOCKS_CSV = DERIVED / "atalay_benchmark_productivity_shocks.csv"
 DEFAULT_NETWORK_V_CSV = DERIVED / "atalay_benchmark_network_variance_matrix.csv"
-DEFAULT_RESULTS_DIR = OUTPUT_DIR
-ATALAY_SUMMARY = RUN_OUTPUT_CACHE / "atalay_summary_all.pkl"
 
 INDUSTRY_LABELS = [
     "Agriculture",
@@ -153,7 +148,6 @@ def run_atalay_panel(
     subsample_n: int,
     solver: str,
     seed: int,
-    out_root: Path,
     progress_every: int,
     run_profile: str,
 ) -> dict[str, object]:
@@ -167,10 +161,9 @@ def run_atalay_panel(
     weight_scale = float(sizes.sum() ** 2)
     y_np = y.to_numpy(float)
     eps_obs = y_np.T
-    x_grouped, buckets, loads, grouping_matrix = build_lpt_grouped_data(y_np, shares, m)
+    x_grouped, _, loads, _ = build_lpt_grouped_data(y_np, shares, m)
     observed = network_observed_stats(x_grouped, eps_obs, network_v, weight_scale, solver)
     sigma_grouped = sample_cov(x_grouped)
-    sigma_eps = sample_cov(eps_obs)
     regularity = regularity_report(sigma_grouped, solver)
     hhi = float(np.sum(shares**2))
 
@@ -253,34 +246,14 @@ def run_atalay_panel(
 
     prefix = output_prefix(panel.name)
     RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
-    out_root.mkdir(parents=True, exist_ok=True)
     pd.concat([bootstrap, block_bootstrap], ignore_index=True).to_pickle(
         RUN_OUTPUT_CACHE / f"{prefix}_draws_resampling.pkl"
     )
     if not subsamples.empty:
         subsamples.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_draws_subsampling.pkl")
 
-    firm_diag, bucket_diag = lpt_diagnostics(y.index, shares, panel.labels, buckets, loads)
-    firm_diag.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_diag_units.pkl")
-    bucket_diag.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_diag_buckets.pkl")
-    plot_lpt_squared_bucket_sizes(
-        firm_diag.rename(columns={"unit_id": "gvkey"}),
-        bucket_diag,
-        out_root / f"lpt_{prefix}",
-        ylabel=r"Bucket squared-influence load: $\sum_{i\in B_m} L_i^2$",
-    )
-
     boot_vals = bootstrap["mgp_share_uncapped"] if not bootstrap.empty else pd.Series(dtype=float)
     block_vals = block_bootstrap["mgp_share_uncapped"] if not block_bootstrap.empty else pd.Series(dtype=float)
-    bias_summary = network_bias_terms(
-        sigma_grouped,
-        sigma_eps,
-        grouping_matrix,
-        network_v,
-        weight_scale,
-        t=y.shape[1],
-        solver=solver,
-    )
     summary = {
         "dataset": panel.name,
         "table_column": f"Network exposure M={m}",
@@ -323,7 +296,6 @@ def run_atalay_panel(
         "moving_block_bootstrap_p95": float(block_vals.quantile(0.95)) if not block_vals.empty else np.nan,
         **gradient,
         **sub_ci,
-        **bias_summary,
         "network_weight_sum": float(sizes.sum()),
         "network_denominator_variance": float(observed["aggregate_variance"]),
         "notes": (
@@ -333,7 +305,6 @@ def run_atalay_panel(
     }
     cap_dynamic_share_report(summary)
     pd.DataFrame([summary]).to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_summary.pkl")
-    pd.DataFrame([summary]).to_pickle(ATALAY_SUMMARY)
     return summary
 
 
@@ -350,7 +321,6 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20260701)
     parser.add_argument("--solver", default="auto")
     parser.add_argument("--run-profile", choices=["medium", "full"], default="full")
-    parser.add_argument("--out-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     args = parser.parse_args()
     if args.run_profile == "medium":
         args.subsample_n = 0
@@ -368,7 +338,6 @@ def main() -> None:
         subsample_n=args.subsample_n,
         solver=solver,
         seed=args.seed,
-        out_root=args.out_dir,
         progress_every=args.progress_every,
         run_profile=args.run_profile,
     )
@@ -384,7 +353,6 @@ def main() -> None:
     ]
     print("\nAtalay epsilon summary:", flush=True)
     print(display[cols].round(6).to_string(index=False), flush=True)
-    print(f"Wrote {ATALAY_SUMMARY}", flush=True)
 
 
 if __name__ == "__main__":

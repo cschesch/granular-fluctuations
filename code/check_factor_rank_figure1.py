@@ -25,7 +25,9 @@ import pandas as pd
 
 from factor_rank import factor_rank_tests, j_test_reportable
 from mgp_core import ROOT, RUN_OUTPUT_CACHE, align_sizes_to_panel, build_lpt_grouped_data, lpt_buckets
-from plot_expanded_applications import HIERARCHY, additional_loaders, available_items, innovation_loaders
+from applications.figure_layout import HIERARCHY
+from applications.registry import panel_loaders, innovation_loaders
+from compute_applications_coefficients import available_items
 
 
 PANEL_CACHE = ROOT / "code/.cache/factor_rank_figure1_panels"
@@ -167,7 +169,7 @@ def loaded_panels(loaders, prefix, available):
 
 
 def additional_panels(available=None) -> list[Panel]:
-    return loaded_panels(additional_loaders(), "additional", available)
+    return loaded_panels(panel_loaders(), "additional", available)
 
 
 def innovation_panels(available=None) -> list[Panel]:
@@ -189,7 +191,7 @@ def election_panels(available=None) -> list[Panel]:
 
 
 def network_panels(available=None) -> list[Panel]:
-    from applications.acemoglu.run_acemoglu2012_mgp import DERIVED as ACEMOGLU_DERIVED
+    from applications.acemoglu.panel import DERIVED as ACEMOGLU_DERIVED
     from applications.atalay import run_atalay_epsilon as atalay
     from applications.carvalho_gabaix import run_carvalho_gabaix_proxy as cg
     from applications.foerster import run_foerster_epsilon as foerster
@@ -425,6 +427,8 @@ def run_tests(manifest: list[dict[str, object]], args: argparse.Namespace) -> No
                 result_path,
             )
             print(f"[rank] ERROR {meta['item']}: {type(exc).__name__}: {exc}", flush=True)
+            combine_results(manifest)
+            raise
         combine_results(manifest)
 
 

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import math
 import re
 from pathlib import Path
 
@@ -201,7 +200,7 @@ def fmt_text(value: object) -> str:
 
 
 ROW_FIELDS = (
-    "outcome", "unit", "sample", "frequency", "T", "N", "M", "hhi", "sqrt_hhi", "sigma_x", "sigma_y",
+    "outcome", "unit", "sample", "frequency", "T", "N", "M", "hhi",
     "naive", "estimate", "ci_low", "ci_high",
 )
 
@@ -224,8 +223,7 @@ def core_rows() -> dict[str, dict[str, object]]:
         fields.update({
             "sample": f"{row.start}--{row.end}",
             "T": row["T"], "N": row["N"], "M": row["M"],
-            "hhi": row.hhi, "sqrt_hhi": math.sqrt(row.hhi),
-            "sigma_x": row.sigma_x, "sigma_y": row.sigma_y,
+            "hhi": row.hhi,
             "naive": row.naive_homoscedastic,
             "estimate": row.estimate, "ci_low": row.ci_low, "ci_high": row.ci_high,
         })
@@ -242,14 +240,11 @@ def additional_rows() -> dict[str, dict[str, object]]:
             continue
         row = by_entity.loc[entity]
         m = int(row["M"])
-        sigma_x = row["sigma_x"] if "sigma_x" in row and pd.notna(row["sigma_x"]) else pd.NA
-        sigma_y = row["sigma_y"] if "sigma_y" in row and pd.notna(row["sigma_y"]) else pd.NA
         fields.update({
             "sample": short_sample(row["Sample"]),
             "frequency": short_frequency(row["Frequency"]),
             "T": row["T"], "N": row["N"], "M": m,
-            "hhi": float(row["HHI"]), "sqrt_hhi": math.sqrt(float(row["HHI"])),
-            "sigma_x": sigma_x, "sigma_y": sigma_y,
+            "hhi": float(row["HHI"]),
             "naive": row["Naive_homoscedastic"],
             "estimate": row["MGP_share"],
             "ci_low": row["CI90_low"], "ci_high": row["CI90_high"],
@@ -271,8 +266,7 @@ def election_rows() -> dict[str, dict[str, object]]:
         fields.update({
             "sample": row["Sample"], "frequency": short_frequency(row["Frequency"]),
             "T": row["T"], "N": row["N"], "M": row["M"], "hhi": row["HHI"],
-            "sqrt_hhi": math.sqrt(float(row["HHI"])), "sigma_x": row["sigma_x"],
-            "sigma_y": row["sigma_y"], "naive": row["Naive_homoscedastic"],
+            "naive": row["Naive_homoscedastic"],
             "estimate": row["MGP_share"], "ci_low": row["CI90_low"], "ci_high": row["CI90_high"],
         })
     return out
@@ -313,8 +307,6 @@ def network_rows() -> dict[str, dict[str, object]]:
             "sample": f"{row['start_date']}--{row['last_date']}",
             "frequency": short_frequency(row.get("frequency", "Annual")),
             "T": row["T"], "N": row["N"], "M": row["M"], "hhi": row.get("HHI", pd.NA),
-            "sqrt_hhi": math.sqrt(float(row["HHI"])) if pd.notna(row.get("HHI", pd.NA)) else pd.NA,
-            "sigma_x": pd.NA, "sigma_y": pd.NA,
             "naive": estimate["homoskedastic"], "estimate": estimate["estimate"],
             "ci_low": estimate["low"], "ci_high": estimate["high"],
         })
@@ -368,7 +360,7 @@ def main() -> None:
     rows = build_rows()
     write_table(rows, [name for name, _ in SECTIONS], OUT / "table_applications_vertical.tex")
     pd.DataFrame(rows).to_csv(CACHE / "table_applications_vertical_data.csv", index=False)
-    print(pd.DataFrame(rows)[["section", "application", "N", "T", "M", "sqrt_hhi",
+    print(pd.DataFrame(rows)[["section", "application", "N", "T", "M",
                               "estimate", "ci_low", "ci_high"]].to_string(index=False))
 
 

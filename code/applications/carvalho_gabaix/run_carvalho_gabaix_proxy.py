@@ -5,7 +5,7 @@ This is a public BEA--BLS proxy, not a replication of the authors' original
 77-sector Dale Jorgenson Associates panel.  The main panel uses the experimental
 63-industry BEA--BLS integrated production account for 1963--2016.  Government
 and real estate are excluded to approximate the paper's private-market sample
-without owner-occupied housing, leaving 60 industries and 53 innovations.  A
+without owner-occupied housing, leaving 60 industries and 53 innovations.
 
 The downloaded workbooks in ``data/bea_klems`` are read only and shared with the
 separate BEA composition exercise. All derived shocks, diagnostics, and estimates
@@ -16,19 +16,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
 import gradient_bootstrap as GB
-from bias import grouped_bias_terms
 from factor_rank import factor_rank_tests
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
-    OUTPUT_DIR,
     ROOT,
     RUN_OUTPUT_CACHE,
     build_lpt_grouped_data,
@@ -37,13 +34,11 @@ from mgp_core import (
     mean_ar1,
     mean_pairwise_correlation,
     mgp_share,
-    plot_lpt_squared_bucket_sizes,
     regularity_report,
     sample_cov,
 )
 from project_paths import DERIVED_CACHE
 from applications.volatility.run_bea_granular_ceiling import NON_MARKET_INDUSTRIES
-from run_multi_source import lpt_diagnostics
 
 
 BEA_KLEMS = ROOT / "data" / "bea_klems"
@@ -150,16 +145,6 @@ class Calibration:
                 - self.variable_labor_share_nu * self.phi_capital
             )
         )
-
-    def payload(self) -> dict[str, float]:
-        return {
-            **asdict(self),
-            "beta": self.beta,
-            "Phi": self.phi_capital,
-            "mu": self.gdp_multiplier_mu,
-            "c_A": self.measured_tfp_own_loading,
-            "c_Y": self.measured_tfp_aggregate_loading,
-        }
 
 
 def _assert_complete_balanced_panel(panel: pd.DataFrame, label: str) -> None:
@@ -303,74 +288,11 @@ def invert_measured_tfp(panel: pd.DataFrame, calibration: Calibration) -> tuple[
     return result, max_error
 
 
-CALIBRATION_SENSITIVITY_THETAS = (0.0, 0.2, 0.43, 0.6, 0.8, 1.0)
-CALIBRATION_SENSITIVITY_PSIS = (1.2, 1.5, 2.0)
-
-
-def calibration_sensitivity(
-    panel: pd.DataFrame,
-    shares: np.ndarray,
-    *,
-    m: int,
-    solver: str,
-    vintage: str,
-) -> pd.DataFrame:
-    """Grouped ceiling as a function of the two calibration choices that move it.
-
-    The measured-TFP inversion subtracts a single common component proportional
-    to the Domar-weighted mean, so it removes only a few percent of total
-    variance but a large share of the *aggregate* variance -- exactly the
-    direction the MGP prices.  The ceiling is therefore far more sensitive to
-    the mismeasurement parameter theta than the variance shares suggest, and
-    theta = 0 (no correction, measured TFP taken as primitive) is the natural
-    lower anchor.  Carvalho--Gabaix pin theta = 0.43 to their own data, whose
-    measured-TFP comovement is well below this public panel's.
-    """
-    order = panel.pivot(index="industry_code", columns="year", values="measured_tfp_innovation").sort_index()
-    rows: list[dict[str, object]] = []
-    base = Calibration()
-    grid = [("theta", theta, replace(base, mismeasurement_theta=theta)) for theta in CALIBRATION_SENSITIVITY_THETAS]
-    grid += [("psi", psi, replace(base, product_differentiation_psi=psi)) for psi in CALIBRATION_SENSITIVITY_PSIS]
-    for parameter, value, calibration in grid:
-        inverted, _ = invert_measured_tfp(panel, calibration)
-        primitive = inverted.pivot(
-            index="industry_code", columns="year", values="primitive_productivity_shock"
-        ).reindex(index=order.index, columns=order.columns)
-        grouped, *_ = build_lpt_grouped_data(primitive.to_numpy(float), shares, m)
-        correlation = np.corrcoef(primitive.to_numpy(float))
-        rows.append(
-            {
-                "vintage": vintage,
-                "parameter": parameter,
-                "value": float(value),
-                "is_published_calibration": bool(
-                    np.isclose(value, getattr(base, "mismeasurement_theta" if parameter == "theta" else "product_differentiation_psi"))
-                ),
-                "c_A": calibration.measured_tfp_own_loading,
-                "c_Y": calibration.measured_tfp_aggregate_loading,
-                "mgp_share": float(mgp_share(grouped, solver)["mgp_share"]),
-                "primitive_mean_pairwise_correlation": float(
-                    np.nanmean(correlation[np.triu_indices_from(correlation, k=1)])
-                ),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
 def export_panel(panel: pd.DataFrame, vintage: str) -> None:
     DERIVED.mkdir(parents=True, exist_ok=True)
     export = panel.copy()
     export.insert(0, "vintage", vintage)
     export.to_csv(DERIVED / f"bea_bls_{vintage}_primitive_shocks_long.csv", index=False)
-    wide = export.pivot(index="year", columns="industry_code", values="primitive_productivity_shock")
-    wide.columns = [f"shock_{int(code):02d}" for code in wide.columns]
-    wide.reset_index().to_csv(DERIVED / f"bea_bls_{vintage}_primitive_shocks.csv", index=False)
-    (
-        export[["industry_code", "industry"]]
-        .drop_duplicates()
-        .sort_values("industry_code")
-        .to_csv(DERIVED / f"bea_bls_{vintage}_industry_key.csv", index=False)
-    )
 
 
 def run_mgp(
@@ -382,7 +304,6 @@ def run_mgp(
     solver: str,
     seed: int,
     progress_every: int,
-    run_profile: str,
     extra_diagnostics: dict[str, object],
 ) -> dict[str, object]:
     primitive = panel.pivot(
@@ -392,14 +313,12 @@ def run_mgp(
     measured = panel.pivot(
         index="industry_code", columns="year", values="measured_tfp_innovation"
     ).reindex(index=primitive.index, columns=primitive.columns)
-    labels = panel.drop_duplicates("industry_code").set_index("industry_code")["industry"]
     influence = panel.groupby("industry_code")["fixed_influence_weight"].first().reindex(primitive.index)
     shares = (influence / influence.sum()).to_numpy(float)
-    x_grouped, buckets, loads, _ = build_lpt_grouped_data(primitive.to_numpy(float), shares, m)
+    x_grouped, _, loads, _ = build_lpt_grouped_data(primitive.to_numpy(float), shares, m)
     sigma_grouped = sample_cov(x_grouped)
     observed = mgp_share(x_grouped, solver)
     regularity = regularity_report(sigma_grouped, solver)
-    bias_summary = grouped_bias_terms(sigma_grouped, x_grouped.shape[0], solver)
 
     prefix = f"carvalho_gabaix_bea_bls_{vintage}_M{m}"
     RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
@@ -424,27 +343,12 @@ def run_mgp(
         print(f"[{prefix}] J-test skipped: {type(exc).__name__}: {exc}", flush=True)
         factor_lb_j, regular_certified_j = np.nan, False
 
-    units, bucket_diag = lpt_diagnostics(primitive.index, shares, labels, buckets, loads)
-    units["raw_initial_domar_weight"] = influence.to_numpy(float)
-    units.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_diag_units.pkl")
-    bucket_diag.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_diag_buckets.pkl")
-    try:
-        plot_lpt_squared_bucket_sizes(
-            units.rename(columns={"unit_id": "gvkey"}),
-            bucket_diag,
-            OUTPUT_DIR / f"lpt_{prefix}",
-            ylabel=r"Bucket squared-Domar load: $\sum_{i\in B_m} d_i^2$",
-        )
-    except Exception as exc:
-        print(f"[{prefix}] LPT plot skipped: {type(exc).__name__}: {exc}", flush=True)
-
     weight_sum = float(influence.sum())
     mu = Calibration().gdp_multiplier_mu
     summary: dict[str, object] = {
         "dataset": prefix,
         "table_column": "Carvalho--Gabaix public proxy",
         "table_outcome": "static Domar-propagated primitive-productivity bound",
-        "run_profile": run_profile,
         "solver_backend": solver,
         "frequency": "annual",
         "value_name": "Carvalho--Gabaix primitive productivity shock",
@@ -479,7 +383,6 @@ def run_mgp(
         "regular_certified_J": regular_certified_j,
         "regular": regularity["regular"],
         "rank_gap_ratio": regularity["rank_gap_ratio"],
-        **bias_summary,
         "gradient_bootstrap_p05": family.get("gradient_low", np.nan),
         "gradient_bootstrap_p95": family.get("gradient_high", np.nan),
         "moving_block_gradient_bootstrap_p05": family.get("block_gradient_low", np.nan),
@@ -511,21 +414,16 @@ def run_mgp(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--M", type=int, default=10,
-                        help="LPT groups; default 10, held fixed across vintages.")
+                        help="LPT groups; default 10.")
     parser.add_argument("--bootstrap-b", type=int, default=ANALYSIS_BOOTSTRAP_DRAWS)
     parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--seed", type=int, default=20260831)
     parser.add_argument("--solver", default="auto")
-    parser.add_argument("--run-profile", choices=["medium", "full"], default="medium")
     args = parser.parse_args()
 
     DERIVED.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     validate_source_files()
     calibration = Calibration()
-    with (DERIVED / "carvalho_gabaix_calibration.json").open("w") as handle:
-        json.dump(calibration.payload(), handle, indent=2, sort_keys=True)
-
     historical, historical_diag = load_historical_panel()
     historical, historical_error = invert_measured_tfp(historical, calibration)
     historical_diag["tfp_inversion_max_abs_error"] = historical_error
@@ -538,20 +436,8 @@ def main() -> None:
         solver=choose_solver(args.solver),
         seed=args.seed,
         progress_every=args.progress_every,
-        run_profile=args.run_profile,
         extra_diagnostics=historical_diag,
     )
-
-    with (DERIVED / "validation_summary.json").open("w") as handle:
-        json.dump(
-            {
-                "historical": historical_diag,
-                "excluded_industries": sorted(EXCLUDED_INDUSTRIES),
-            },
-            handle,
-            indent=2,
-            sort_keys=True,
-        )
 
     display = pd.DataFrame([historical_summary])[
         [

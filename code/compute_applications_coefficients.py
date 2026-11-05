@@ -51,6 +51,11 @@ def core_estimates():
     return results.set_index(results.prefix.str.replace(r'_M\d+$', '', regex=True))
 
 
+def available_items():
+    results = pd.read_csv(CACHE / "applications_coefficients_expanded_data.csv")
+    return set(results.loc[results.estimate.notna(), "item"])
+
+
 def direct_moments(y, sizes):
     sizes = sizes.reindex(y.index).astype(float)
     keep = sizes.gt(0) & np.isfinite(sizes)
@@ -65,14 +70,9 @@ def naive_moments(x, exposure_squared, denominator):
     variances = np.var(x, axis=1, ddof=1)
     exposure_squared = np.asarray(exposure_squared, dtype=float)
     mean_variance = float(variances.mean())
-    mean_sd = float(np.sqrt(variances).mean())
     hetero = float(exposure_squared @ variances / denominator)
     homo = float(exposure_squared.sum() * mean_variance / denominator)
-    return dict(naive=hetero, naive_homoscedastic=homo,
-                naive_common_mean_sd=float(exposure_squared.sum() * mean_sd**2 / denominator),
-                mean_unit_variance=mean_variance, mean_unit_sd=mean_sd,
-                exposure_squared_sum=float(exposure_squared.sum()),
-                size_weighted_unit_variance=float(exposure_squared @ variances / exposure_squared.sum()))
+    return dict(naive=hetero, naive_homoscedastic=homo)
 
 
 def clean_panel_moments(prefix, summary):
@@ -156,16 +156,13 @@ def main():
                            ci_low=s.moving_block_gradient_bootstrap_p05,
                            ci_high=s.moving_block_gradient_bootstrap_p95, **benchmarks,
                            N=int(s.N), T=int(s['T']), M=int(s.M), hhi=s.HHI,
-                           sigma_x=s.get('sigma_x'), sigma_y=s.get('sigma_y', np.sqrt(denominator)),
                            start=str(s.start_date), end=str(s.last_date),
                            denominator=denominator, summary_source=str(source.relative_to(ROOT)),
                            moments_source=moments_source))
-        print(f"{label}: hetero {benchmarks['naive']:.1%}, homo {benchmarks['naive_homoscedastic']:.1%}, "
-              f"common mean SD {benchmarks['naive_common_mean_sd']:.1%}", flush=True)
+        print(f"{label}: hetero {benchmarks['naive']:.1%}, homo {benchmarks['naive_homoscedastic']:.1%}", flush=True)
     columns = ('label', 'prefix', 'estimate', 'ci_low', 'ci_high', 'naive',
-               'naive_homoscedastic', 'naive_common_mean_sd', 'mean_unit_variance', 'mean_unit_sd',
-               'exposure_squared_sum', 'size_weighted_unit_variance', 'N', 'T', 'M', 'hhi',
-               'sigma_x', 'sigma_y', 'start', 'end', 'denominator', 'summary_source', 'moments_source')
+               'naive_homoscedastic', 'N', 'T', 'M', 'hhi',
+               'start', 'end', 'denominator', 'summary_source', 'moments_source')
     df = pd.DataFrame(values, columns=columns)
     assert (df.ci_low <= df.ci_high).all()
     df.to_csv(CACHE / 'applications_coefficients_data.csv', index=False)

@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 from scipy.linalg import solve_discrete_lyapunov
 
-import bias as B
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
@@ -452,78 +451,6 @@ def subsample_network_mgp(
     return draws, subsampling_summary(draws, g_hat, t)
 
 
-def network_bias_terms(
-    sigma_grouped: np.ndarray,
-    sigma_eps: np.ndarray,
-    grouping_matrix: np.ndarray,
-    network_v: np.ndarray,
-    weight_scale: float,
-    t: int,
-    solver: str,
-    fragile_gap_ratio: float = 5.0,
-    closed_disagreement_rel: float = 0.10,
-) -> dict[str, object]:
-    reg = regularity_report(sigma_grouped, solver)
-    diag = B.closed_form_diagnostics(sigma_grouped, solver)
-    rank_gap = float(reg["rank_gap_ratio"])
-    gap_is_fragile = (not np.isfinite(rank_gap) and not np.isinf(rank_gap)) or (
-        np.isfinite(rank_gap) and rank_gap < fragile_gap_ratio
-    )
-    structural_fragile = bool(
-        (not reg["regular"])
-        or gap_is_fragile
-        or (not diag["strict_complementarity"])
-        or (diag["sigma_rank"] < sigma_grouped.shape[0])
-    )
-
-    basis = B.sym_basis(sigma_grouped.shape[0])
-    h = 1e-4 * np.linalg.norm(sigma_grouped)
-    hg_cf = B.closed_value_hessian(sigma_grouped, basis, solver)
-    hg_fd = B.operator_to_value_hessian([B.dYstar_fd(sigma_grouped, e, solver, h) for e in basis], basis)
-    try:
-        hg_ad = B.operator_to_value_hessian(B.dYstar_ad_all(sigma_grouped, basis), basis)
-    except Exception:
-        hg_ad = np.full_like(hg_cf, np.nan)
-
-    y_dual = B.dual_optimizer(sigma_grouped, solver)
-    gamma_norm = float(np.sum(y_dual * sigma_grouped))
-    gamma_level = weight_scale * gamma_norm
-    denom = network_denominator(sigma_eps, network_v)
-    grad_num_full = weight_scale * grouping_matrix.T @ y_dual @ grouping_matrix
-    omega_num_den = 2.0 * float(np.trace(grad_num_full @ sigma_eps @ network_v @ sigma_eps))
-    omega_den_den = 2.0 * float(np.trace(network_v @ sigma_eps @ network_v @ sigma_eps))
-
-    def quotient_bias(h_gamma: np.ndarray) -> float:
-        if np.isnan(h_gamma).any():
-            return np.nan
-        gmat = B.gamma_matrix(sigma_grouped, basis)
-        contr_num = weight_scale * float(np.sum(gmat * h_gamma))
-        contr_share = (
-            contr_num / denom
-            - 2.0 * omega_num_den / denom**2
-            + 2.0 * gamma_level * omega_den_den / denom**3
-        )
-        return contr_share / (2.0 * t)
-
-    b_cf = quotient_bias(hg_cf)
-    b_fd = quotient_bias(hg_fd)
-    b_ad = quotient_bias(hg_ad)
-    closed_fd_rel = B.relative_gap(b_cf, b_fd)
-    closed_ad_rel = B.relative_gap(b_cf, b_ad)
-    hessian_disagreement = (
-        (np.isfinite(closed_ad_rel) and closed_ad_rel > closed_disagreement_rel)
-        or (not np.isfinite(closed_ad_rel) and np.isfinite(closed_fd_rel) and closed_fd_rel > closed_disagreement_rel)
-    )
-    return {
-        "bias_closed": b_cf,
-        "bias_fd": b_fd,
-        "bias_ad": b_ad,
-        "bias_closed_fragile": bool(structural_fragile or hessian_disagreement),
-        "bias_rank_gap_ratio": round(rank_gap, 1),
-        "bias_strict_complementarity": diag["strict_complementarity"],
-    }
-
-
 def run_network_exposure_panel(
     panel: SourcePanel,
     original_weight_sizes: pd.Series,
@@ -549,10 +476,9 @@ def run_network_exposure_panel(
     weight_scale = float(sizes.sum() ** 2)
     y_np = y.to_numpy(dtype=float)
     eps_obs = y_np.T
-    x_grouped, buckets, loads, grouping_matrix = build_lpt_grouped_data(y_np, shares, m)
+    x_grouped, buckets, loads, _ = build_lpt_grouped_data(y_np, shares, m)
     observed = network_observed_stats(x_grouped, eps_obs, network_v_sorted, weight_scale, solver)
     sigma_grouped = sample_cov(x_grouped)
-    sigma_eps = sample_cov(eps_obs)
     regularity = regularity_report(sigma_grouped, solver)
     hhi = float(np.sum(shares**2))
 
@@ -631,10 +557,6 @@ def run_network_exposure_panel(
 
     boot_vals = bootstrap["mgp_share_uncapped"] if not bootstrap.empty else pd.Series(dtype=float)
     block_vals = block_bootstrap["mgp_share_uncapped"] if not block_bootstrap.empty else pd.Series(dtype=float)
-    bias_summary = network_bias_terms(
-        sigma_grouped, sigma_eps, grouping_matrix, network_v_sorted, weight_scale,
-        t=y.shape[1], solver=solver,
-    )
     summary = {
         "dataset": f"foerster_epsilon_network_M{m}",
         "table_column": f"Network exposure M={m}",
@@ -677,7 +599,6 @@ def run_network_exposure_panel(
         "moving_block_bootstrap_p95": reported_dynamic_share(block_vals.quantile(0.95)) if not block_vals.empty else np.nan,
         **gradient,
         **sub_ci,
-        **bias_summary,
         "network_weight_sum": float(sizes.sum()),
         "network_denominator_variance": float(observed["aggregate_variance"]),
         "notes": (
@@ -748,12 +669,6 @@ def main() -> None:
         run_profile=args.run_profile,
     )
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    # A single granular share: the network-exposure column (primitives regrouped by
-    # total influence, denominator the model-implied aggregate variance).
-    RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame([network_summary]).to_pickle(RUN_OUTPUT_CACHE / "foerster_summary_all.pkl")
-
     display = pd.DataFrame([network_summary])
     cols = [
         "dataset",
@@ -769,7 +684,6 @@ def main() -> None:
     cols = [col for col in cols if col in display.columns]
     print("\nFoerster epsilon summary:", flush=True)
     print(display[cols].round(6).to_string(index=False), flush=True)
-    print(f"Wrote {RUN_OUTPUT_CACHE / 'foerster_summary_all.pkl'}", flush=True)
 
 
 if __name__ == "__main__":

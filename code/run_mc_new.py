@@ -35,10 +35,9 @@ BOOTSTRAP_DRAWS=199
 def simulation_config(smoke=False):
     """Every method uses every replication of the same simulated panels."""
     reps=12 if smoke else REPLICATIONS
-    return mc.McConfig(reps=reps,reps_resampling=reps,
+    return mc.McConfig(reps=reps,
         n_boot=39 if smoke else BOOTSTRAP_DRAWS,
-        n_subsample=30 if smoke else 300,face_draws=0,seed=0,
-        solver='CLARABEL',bias_terms=False)
+        n_subsample=30 if smoke else 300,seed=0)
 
 
 def design(name,label,**changes):

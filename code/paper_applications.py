@@ -102,12 +102,11 @@ APPLICATIONS = (
     ))),
     Analysis("Quarterly Compustat", (("applications.compustat.run_compustat_quarterly", "--run-profile", "full"),),
              (QUARTERLY,), ("lpt_compustat_qtr.pdf",), ("compustat_qtr_summary.pkl",)),
-    Analysis("Core applications", (("run_multi_source", "--run-profile", "medium", "--available-only"),)),
+    Analysis("Core applications", (("run_multi_source", "--available-only"),)),
     Analysis("Mutual funds", (("applications.mutual_funds.run_mutual_fund_applications",),), tuple(
         wrds_path(f"mutual_fund_{name}") for name in (
             "monthly_assets", "monthly_returns", "daily_returns", "headers", "portfolio_map",
         )), summaries=("mutual_fund_applications_summary.pkl",)),
-    Analysis("Innovation", (("applications.innovation.run_innovation_applications",),)),
     Analysis("Other application panels", (("applications.run_panels",),)),
     Analysis("Elections", (("applications.elections.run_election_applications",),),
              (DATA / "elections/algara_amlani_presidential_county_1868_2020.csv",),
@@ -222,7 +221,7 @@ SIMULATIONS = (
         ("run_mc_new", "--jobs", "2"),
         ("plot_mc_new", "--simulation-only"),
         ("plot_mc_new_tightness",),
-        ("run_grouped_giv_mc_long",),
+        ("run_grouped_giv_mc",),
     )),
 )
 EMPIRICAL = (

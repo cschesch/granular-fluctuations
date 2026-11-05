@@ -25,10 +25,9 @@ import pandas as pd
 from mgp_core import OUTPUT_DIR as OUT, align_sizes_to_panel, build_lpt_grouped_data, sample_cov
 from gradient_bootstrap import _ci, moving_block_indices
 from near_optimal import delta_rate
-from compute_applications_coefficients import CACHE, clean_panel_moments, summary_path
-from plot_expanded_applications import (
-    HIERARCHY, additional_loaders, available_items, hierarchy_positions, innovation_loaders, tick_labels,
-)
+from compute_applications_coefficients import CACHE, clean_panel_moments, summary_path, available_items
+from applications.figure_layout import HIERARCHY, hierarchy_positions, tick_labels
+from applications.registry import panel_loaders, innovation_loaders
 # Imported after mgp_core, which points MPLCONFIGDIR at a writable cache.
 import matplotlib
 matplotlib.use("Agg")
@@ -36,7 +35,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from applications.elections import run_election_applications as elec
 from applications.mutual_funds import run_mutual_fund_applications as mutual
-from applications.acemoglu.run_acemoglu2012_mgp import DERIVED as ACEMOGLU_DERIVED
+from applications.acemoglu.panel import DERIVED as ACEMOGLU_DERIVED
 from applications.atalay import run_atalay_epsilon as atalay
 from applications.carvalho_gabaix import run_carvalho_gabaix_proxy as cg
 from applications.foerster import run_foerster_epsilon as foerster
@@ -75,7 +74,7 @@ class HDeriv:
         return self.tr * float(np.linalg.eigvalsh(self.q.T @ (0.5 * (k + k.T)) @ self.q)[0])
 
 
-def hmgp(y, shares, m, block, seed, eps=None, network_v=None, weight_scale=1.0, bootstrap=True):
+def hmgp(y, shares, m, block, seed, eps=None, network_v=None, weight_scale=1.0):
     """y: N x T (normalized shares); eps/network_v only for dynamic networks (T x N, N x N)."""
     y = np.asarray(y, float); shares = np.asarray(shares, float); t = y.shape[1]
     xg, _, loads, _ = build_lpt_grouped_data(y, shares, m)
@@ -89,15 +88,13 @@ def hmgp(y, shares, m, block, seed, eps=None, network_v=None, weight_scale=1.0, 
         denom_draw = lambda idx: float(np.sum(network_v * sample_cov(eps[idx])))
         level_scale = weight_scale
     g = level_scale * dd.level / denom
-    lo = hi = np.nan
-    if bootstrap:
-        rng = np.random.default_rng(seed); stats = np.empty(B)
-        for b in range(B):
-            idx = moving_block_indices(t, block, rng)
-            hg = np.sqrt(t) * (sample_cov(xg[idx]) - sigma)
-            hd = np.sqrt(t) * (denom_draw(idx) - denom)
-            stats[b] = (level_scale * dd.dlevel(hg) - g * hd) / denom
-        lo, hi = _ci(g, stats, t)
+    rng = np.random.default_rng(seed); stats = np.empty(B)
+    for b in range(B):
+        idx = moving_block_indices(t, block, rng)
+        hg = np.sqrt(t) * (sample_cov(xg[idx]) - sigma)
+        hd = np.sqrt(t) * (denom_draw(idx) - denom)
+        stats[b] = (level_scale * dd.dlevel(hg) - g * hd) / denom
+    lo, hi = _ci(g, stats, t)
     return dict(hmgp=g, h_lo=lo, h_hi=hi, eiggap=dd.gap, window=dd.window, N=y.shape[0], T=t, M=m, block=block, hhi=float(shares @ shares))
 
 def core_panel(prefix, clean):
@@ -127,10 +124,10 @@ def nonnetwork_rows(seed, available):
             if item in available:
                 yield item, hmgp(*app_panel(app, "mutual_fund_applications_summary.pkl"), seed)
     # ---- additional and innovation ----
-    for source, loaders in (("additional", additional_loaders()), ("innovation", innovation_loaders())):
+    for loaders in (panel_loaders(), innovation_loaders()):
         for item, loader in loaders.items():
             if item in available:
-                yield item, hmgp(*app_panel(loader(), f"{source}_applications_summary.pkl"), seed)
+                yield item, hmgp(*app_panel(loader(), "additional_applications_summary.pkl"), seed)
     # ---- elections ----
     elections = {"Democratic votes by state": elec.state_application,
                  "Democratic votes by county": elec.county_application}
@@ -202,11 +199,10 @@ def network_rows(seed, available):
             w.outcomes.T, w.shares, int(sw.M), int(sw.block_length), seed,
         )
 
-def rows(networks_only=False):
+def rows():
     seed = 20260916
     available = available_items()
-    if not networks_only:
-        yield from nonnetwork_rows(seed, available)
+    yield from nonnetwork_rows(seed, available)
     yield from network_rows(seed, available)
 
 
@@ -262,27 +258,19 @@ def plot() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--networks-only", action="store_true",
-                        help="Refresh network applications and preserve other cached rows.")
     parser.add_argument("--no-plot", action="store_true", help="Update the result CSV only.")
     args = parser.parse_args()
     result_path = CACHE / "hmgp_figure1_data.csv"
-    previous = pd.read_csv(result_path) if args.networks_only and result_path.exists() else pd.DataFrame()
     out = []
-    for item, r in rows(args.networks_only):
+    for item, r in rows():
         r["item"] = item; out.append(r)
         interval = (
             f"90% [{100*r['h_lo']:6.2f}, {100*r['h_hi']:6.2f}]"
             if np.isfinite(r['h_lo']) and np.isfinite(r['h_hi']) else "point only"
         )
         print(f"[hmgp] {item:28s} N={r['N']:5d} T={r['T']:5d} M={r['M']:2d} block={r['block']:2d}  hMGP={100*r['hmgp']:6.2f}%  {interval}  eiggap={r['eiggap']:.2f} window={r['window']}", flush=True)
-        current = pd.DataFrame(out)
-        if not previous.empty:
-            current = pd.concat([previous.loc[~previous.item.isin(current.item)], current], ignore_index=True)
-        current.to_csv(result_path, index=False)
-    if not out:
-        columns = ("hmgp", "h_lo", "h_hi", "eiggap", "window", "N", "T", "M", "block", "hhi", "item")
-        pd.DataFrame(columns=columns).to_csv(result_path, index=False)
+    columns = ("hmgp", "h_lo", "h_hi", "eiggap", "window", "N", "T", "M", "block", "hhi", "item")
+    pd.DataFrame(out, columns=columns).to_csv(result_path, index=False)
     if not args.no_plot:
         plot()
         print(f"[hmgp] wrote {OUT / 'figure1_hmgp.pdf'}")

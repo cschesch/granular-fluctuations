@@ -11,7 +11,7 @@ from mgp_core import RUN_OUTPUT_CACHE
 def main():
     from run_mc_new import simulation_config
     production=simulation_config()
-    assert production.reps==production.reps_resampling==1000
+    assert production.reps==1000
     assert production.n_boot==199
     # Replaying the selection preserves the original idiosyncratic draw and
     # reproduces the explicitly verified second loading draw exactly.
@@ -36,8 +36,7 @@ def main():
     assert original.regular is True
     assert mc._population_regularity(saved['sigma_grouped_normalized']) is False
     d=mc.Design('test_mc_new','test',n=40,m=5,r=2,t=40,seed=123)
-    cfg=mc.McConfig(reps=12,reps_resampling=12,n_boot=19,n_subsample=8,
-                    face_draws=0,seed=0,solver='CLARABEL',bias_terms=False)
+    cfg=mc.McConfig(reps=12,n_boot=19,n_subsample=8,seed=0)
     common=mc.run_design(d,cfg,resampling_families=('bootstrap',),extra_delta_scales=(.5,2.))
     assert len(common['share'])==len(common['se'])==cfg.reps
     assert common['row']['reps']==common['row']['reps_resampling']==cfg.reps

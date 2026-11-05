@@ -12,7 +12,7 @@ import pandas as pd
 
 from factor_rank import factor_rank_ledermann, j_test_reportable
 from mgp_core import ROOT, RUN_OUTPUT_CACHE
-from plot_expanded_applications import HIERARCHY, hierarchy_positions, tick_labels
+from applications.figure_layout import HIERARCHY, hierarchy_positions, tick_labels
 
 
 OUT = ROOT / "output"

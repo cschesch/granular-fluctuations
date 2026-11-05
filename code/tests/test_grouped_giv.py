@@ -220,7 +220,7 @@ def test_scalar_instrument() -> None:
 
 def test_full_panel_spectral_equivalence() -> None:
     """Compare the fast full-panel path with the generic Hahn implementation."""
-    from run_grouped_giv_mc import _full_spectral, _pca_loading
+    from grouped_giv_mc import _full_spectral, _pca_loading
 
     rng = np.random.default_rng(606)
     t, n = 350, 18
@@ -250,7 +250,7 @@ def test_full_panel_spectral_equivalence() -> None:
 def test_mc_sample_cells_and_tables() -> None:
     """Guard against pooling the three T blocks with the same N."""
     import pandas as pd
-    from run_grouped_giv_mc import (
+    from grouped_giv_mc import (
         SAMPLES, DESIGNS, HEADLINE_METHODS, METHODS, build_population,
         design_summary, table_lines, write_combined_table,
     )
@@ -306,7 +306,7 @@ def test_hahn_bic_bound() -> None:
 
 def test_full_known_hahn_correction() -> None:
     """Known-rank Hahn matches the dense spectral formula even at T<N."""
-    from run_grouped_giv_mc import _full_known_correction, _pca_loading
+    from grouped_giv_mc import _full_known_correction, _pca_loading
     rng = np.random.default_rng(808)
     n = 18
     q = orthogonal_complement(np.ones((n, 1)))
@@ -328,8 +328,8 @@ def test_full_known_hahn_correction() -> None:
         check(abs(direct.se - compact.se) < TOL, "factored Hahn scalar variance changed")
 
 def test_one_dataset_all_methods_loop() -> None:
-    from run_grouped_giv_mc import (
-        BAI_NG_METHODS, DESIGNS, MC_SEED, METHODS, REPS,
+    from grouped_giv_mc import (
+        DESIGNS, MC_SEED, METHODS, REPS,
         bai_ng_count, build_population, simulate_cell,
     )
     check(bai_ng_count(np.ones(9), 9, 100, 9) == 0, "ICp2 selected a factor in a flat spectrum")
@@ -357,14 +357,6 @@ def test_one_dataset_all_methods_loop() -> None:
         expected.standard_normal((100, 1000))
     check(rng.bit_generator.state == expected.bit_generator.state,
           "estimators consumed random numbers or the simulation redrew a dataset")
-    replay = np.random.default_rng(909)
-    new_rows = simulate_cell(pop, 2, replay, bai_ng_only=True)
-    check(replay.bit_generator.state == rng.bit_generator.state, "Bai--Ng replay changed the RNG stream")
-    paired = [row for row in records if row["method"] in BAI_NG_METHODS]
-    for original, regenerated in zip(paired, new_rows, strict=True):
-        check(original["selected_rank"] == regenerated["selected_rank"], "replay changed selected rank")
-        for key in ("psi_hat", "phi_hat", "psi_se", "phi_se"):
-            check(original[key] == regenerated[key], f"replay changed {key}")
 
 
 def test_joint_algorithm_one() -> None:

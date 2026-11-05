@@ -21,7 +21,7 @@ from mgp_core import (
     make_panel_rng,
     mgp_share,
 )
-from applications.acemoglu.run_acemoglu2012_mgp import (
+from applications.acemoglu.panel import (
     DATA_ROOT,
     DERIVED,
     DETAILED_IO_MAT,
@@ -180,7 +180,6 @@ def main():
         raise ValueError("A matched common unit contains a SIC with incomplete TFP.")
     within = shipments92 / shipments92.groupby(components).transform("sum")
     network_weights = within * components.map(group_influence)
-    common_shipments58 = within * shipments58.groupby(components).transform("sum")
     links["used_component_influence"] = links.component.map(group_influence).where(links.in_balanced_panel)
     mass = network_weights.sum()
     print(
@@ -193,8 +192,6 @@ def main():
     solver = choose_solver("auto")
     cases = [
         ("1958 shipments, original", shocks, shipments58, shocks.index),
-        ("1958 shipments, common units", shocks, common_shipments58, components),
-        ("1992 shipments, common units", shocks, shipments92, components),
         ("1992 BEA influence, common units", shocks, network_weights, components),
         ("1992 BEA influence, SIC units", shocks, network_weights, shocks.index),
     ]

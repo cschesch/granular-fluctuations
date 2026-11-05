@@ -55,7 +55,6 @@ from mgp_core import (
     atomic_write_pickle,
     ledermann_bound,
     lpt_buckets,
-    solve_grouped_mgp_dual,
 )
 from near_optimal import delta_rate, near_optimal_derivative
 from mosek_face import licensed_mosek
@@ -74,7 +73,7 @@ FIRM_MAX_ITER = 4000         # the firm-level SDP is one N x N problem, not a ba
 # 1e-4 on Gamma_0 is still four orders below any digit the appendix reports.
 FIRM_GAP_TOL = 1e-4          # accept Gamma_0 once its certified relative gap is this small
 # Beside .cache/clean_panels rather than inside .cache/run_outputs, so that the
-# populations -- one N-dimensional SDP each -- survive `make clean`.
+# populations -- one N-dimensional SDP each -- are retained across reruns.
 POP_CACHE = CACHE_DIR / "inference_mc_populations"
 
 
@@ -99,7 +98,6 @@ class Design:
     gamma_target: float = 0.03    # designed granular share sum S_i^2 psi_i / sigma_y^2
     delta_scale: float = 1.0      # multiplier c in delta_T = c sqrt(log T / T)
     seed: int = 20260901
-    deep_reps: int | None = None  # override the resampling replications for costly cells
     loading_draw: int = 1        # consecutive loading draw, holding idiosyncratic variances fixed
 
     @property
@@ -699,7 +697,6 @@ def resampling_intervals(
     design: Design,
     cfg: ResampleConfig,
     rng: np.random.Generator,
-    solver: str = "MOSEK",
     families: tuple[str, ...] = ("bootstrap", "block_bootstrap"),
     extra_delta_scales: tuple[float, ...] = (),
 ) -> dict[str, np.ndarray]:
@@ -803,125 +800,14 @@ def resampling_intervals(
 
 
 # --------------------------------------------------------------------------- #
-# Population bias predictions (the two terms of Section ``sec:bias``)           #
-# --------------------------------------------------------------------------- #
-def curvature_bias(pop: Population, t: int, solver: str) -> float:
-    """The O(1/T) term ``(1/2T) <Omega, gamma_bar''>`` at the population Sigma_tilde_0.
-
-    Shapiro--Ten Berge's second-order sensitivity, evaluated exactly where the MC
-    truth is, so the realized Monte Carlo bias can be compared with it directly.
-    Only meaningful in the regular case, where gamma_bar is twice differentiable.
-    """
-    import bias as bias_mod
-
-    basis = bias_mod.sym_basis(pop.design.m)
-    hessian = bias_mod.closed_value_hessian(pop.sigma_grouped, basis, solver)
-    return float(
-        bias_mod.share_bias_from_value_hessian(hessian, pop.sigma_grouped, basis, t, solver)
-    )
-
-
-FACE_CAP_REL_TOL = 1e-8
-DUAL_FEAS_TOL = 1e-10
-
-
-def irregularity_bias(pop: Population, t: int, n_draws: int,
-                      rng: np.random.Generator, solver: str) -> dict[str, float | int]:
-    """The O(1/sqrt T) term ``E[W]/sigma_y^2/sqrt(T)`` at the population Sigma_tilde_0.
-
-    ``W = min_{Y in Y*(Sigma_tilde_0)} <Y,Z>`` is a minimum of correlated Gaussians
-    with mean <= 0; here the face is the *population* one, so this is the target the
-    draft's gradient-bootstrap estimator is supposed to recover.
-    """
-    m = pop.design.m
-    z = rng.standard_normal((n_draws, t, m)) @ pop.half
-    directions = np.sqrt(t) * (batch_cov(z) - pop.sigma_grouped)
-    # The cap must approach the population dual optimum FROM ABOVE.  ``gamma_bar0``
-    # is produced by the primal barrier and is a lower bound up to its terminal gap;
-    # using it as the cap can therefore make the face program infeasible.  That was
-    # the source of the formerly enormous entries in Table C2: every face solve had
-    # failed and the last divergent barrier iterates were inadvertently averaged.
-    # We obtain an independent dual-side upper value and add a documented tolerance
-    # in share units.  The tolerance is eight orders below a unit share and materially
-    # below every displayed digit.
-    primal_level = pop.gamma_bar0 * pop.sigma_y2
-    dual_raw = solve_grouped_mgp_dual(pop.sigma_grouped, solver)
-    y_raw = np.asarray(dual_raw["Y"], dtype=float)
-    # Turn the numerical solver output into an explicitly feasible certificate.
-    # Adding a multiple of I repairs a small PSD violation; positive rescaling
-    # repairs a diagonal below one.  Sigma is PSD, so both moves can only raise
-    # the dual objective and hence preserve its upper-bound interpretation.
-    eig_repair = max(0.0, DUAL_FEAS_TOL - float(np.linalg.eigvalsh(y_raw).min()))
-    y_dual = y_raw + eig_repair * np.eye(m)
-    diag_scale = max(1.0, 1.0 / float(np.diag(y_dual).min()))
-    y_dual *= diag_scale
-    dual_level = float(np.sum(y_dual * pop.sigma_grouped))
-    cap = dual_level + FACE_CAP_REL_TOL * pop.sigma_y2
-    level, solved = near_optimal_derivative(
-        directions, pop.sigma_grouped, cap, mu_end=1e-9,
-    )
-    failed = int((~solved).sum())
-    if failed:
-        raise RuntimeError(
-            f"Population-face calculation failed for {failed}/{n_draws} directions; "
-            "refusing to report unconverged barrier iterates."
-        )
-    trace = directions.sum(axis=(-2, -1))
-    stat = level / pop.sigma_y2 - pop.gamma_bar0 * trace / pop.sigma_y2
-    bias = float(stat.mean()) / np.sqrt(t)
-    se = float(stat.std(ddof=1)) / np.sqrt(n_draws * t)
-    # E[min_Y <Y,Z>] <= min_Y E[<Y,Z>] = 0.  A small positive Monte Carlo mean is
-    # admissible only within simulation error and is reported together with that SE.
-    if bias > 4.0 * se:
-        raise RuntimeError(
-            f"Population-face mean is positive by more than four Monte Carlo SEs: "
-            f"bias={bias:.3e}, se={se:.3e}."
-        )
-    primal_diag = np.diag(pop.sigma_grouped - pop.common)
-    return {
-        "bias": bias,
-        "se": se,
-        "failed": failed,
-        "primal_level": primal_level,
-        "dual_level": dual_level,
-        "primal_dual_gap": dual_level - primal_level,
-        "primal_min_idio_scaled": float(primal_diag.min() / pop.sigma_y2),
-        "primal_common_min_eig_scaled": float(
-            np.linalg.eigvalsh(pop.common).min() / pop.sigma_y2
-        ),
-        "dual_min_diag_minus_one": float(np.diag(y_dual).min() - 1.0),
-        "dual_min_eig": float(np.linalg.eigvalsh(y_dual).min()),
-        "dual_raw_min_diag": float(dual_raw["dual_min_diag"]),
-        "dual_raw_min_eig": float(dual_raw["dual_min_eig"]),
-        "dual_eig_repair": eig_repair,
-        "dual_diag_scale": diag_scale,
-        "cap": cap,
-        "cap_rel_tol": FACE_CAP_REL_TOL,
-        "dual_feas_tol": DUAL_FEAS_TOL,
-        "barrier_mu_end": 1e-9,
-    }
-
-
-# --------------------------------------------------------------------------- #
 # One design                                                                   #
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class McConfig:
-    reps: int = 4000            # replications for the point-estimate moments
-    reps_resampling: int = 400  # replications carrying the full six-method interval suite
-    n_boot: int = 299           # matches the draft's 300-draw resampling
+    reps: int = 1000
+    n_boot: int = 199
     n_subsample: int = 300
-    face_draws: int = 3000      # draws for the population E[W]
-    seed: int = 90210
-    solver: str = "MOSEK"
-    # The two population bias predictions of Section ``sec:bias``. They are
-    # diagnostics, not inputs to any interval, and the O(1/sqrt T) one is by far the
-    # most expensive object in a replication: it minimizes over the POPULATION dual
-    # face, i.e. at a vanishing near-optimality tolerance, and on a face with several
-    # Heywood boundaries the barrier cannot finish, so every one of ``face_draws``
-    # directions falls through to the MOSEK backstop one at a time. Runs that do not
-    # report the bias decomposition should turn this off.
-    bias_terms: bool = True
+    seed: int = 0
 
 
 def _stream(cfg: McConfig, design: Design, tag: str) -> np.random.Generator:
@@ -930,7 +816,7 @@ def _stream(cfg: McConfig, design: Design, tag: str) -> np.random.Generator:
     return np.random.default_rng([cfg.seed, int(digest), design.t, design.m])
 
 
-def run_design(design: Design, cfg: McConfig, with_resampling: bool = True,
+def run_design(design: Design, cfg: McConfig,
                resampling_families: tuple[str, ...] = ("bootstrap", "block_bootstrap"),
                extra_delta_scales: tuple[float, ...] = ()) -> dict:
     """Population truth plus Monte Carlo behaviour of the estimator and the intervals."""
@@ -986,56 +872,22 @@ def run_design(design: Design, cfg: McConfig, with_resampling: bool = True,
         "mean_sample_rank_tight": float(est.rank_tight.mean()),
         "mean_sample_heywood": float(heywood_mask(est.nu).sum(axis=1).mean()),
     }
-    if cfg.bias_terms:
-        row["bias_curvature_pred"] = (
-            curvature_bias(pop, design.t, cfg.solver) if pop.regular else np.nan
-        )
-        face = irregularity_bias(
-            pop, design.t, cfg.face_draws, _stream(cfg, design, "face"), cfg.solver
-        )
-        row["bias_irregularity_pred"] = face["bias"]
-        row["bias_irregularity_se"] = face["se"]
-        row["face_failed"] = face["failed"]
-        row["face_primal_level"] = face["primal_level"]
-        row["face_dual_level"] = face["dual_level"]
-        row["face_primal_dual_gap"] = face["primal_dual_gap"]
-        row["face_cap"] = face["cap"]
-        row["face_cap_rel_tol"] = face["cap_rel_tol"]
-        row["face_barrier_mu_end"] = face["barrier_mu_end"]
-    else:
-        row["bias_curvature_pred"] = np.nan
-        row["bias_irregularity_pred"] = np.nan
-        row["bias_irregularity_se"] = np.nan
-
-    intervals = None
-    if with_resampling:
-        wanted = cfg.reps_resampling if design.deep_reps is None else design.deep_reps
-        n_deep = min(wanted, cfg.reps)
-        cfgr = ResampleConfig(n_boot=cfg.n_boot, n_subsample=cfg.n_subsample)
-        deep_est = _slice_estimates(est, n_deep)
-        intervals = resampling_intervals(
-            x[:n_deep], deep_est, design, cfgr, _stream(cfg, design, "resample"), cfg.solver,
-            families=resampling_families, extra_delta_scales=extra_delta_scales
-        )
-        row["reps_resampling"] = n_deep
-        row["bias_irregularity_hat"] = float(intervals["gradient_mean"].mean()) / root_t
-        row["unsolved_rate"] = float(intervals["unsolved_rate"][0])
-    else:
-        n_deep = 0
-        row["reps_resampling"] = 0
-        row["bias_irregularity_hat"] = np.nan
-        row["unsolved_rate"] = np.nan
-
-    coverage_rows = _coverage_table(design, pop, est, intervals, n_deep)
+    intervals = resampling_intervals(
+        x, est, design, ResampleConfig(cfg.n_boot, cfg.n_subsample),
+        _stream(cfg, design, "resample"),
+        families=resampling_families, extra_delta_scales=extra_delta_scales,
+    )
+    row["reps_resampling"] = cfg.reps
+    row["bias_irregularity_hat"] = float(intervals["gradient_mean"].mean()) / root_t
+    row["unsolved_rate"] = float(intervals["unsolved_rate"][0])
+    coverage_rows = _coverage_table(design, pop, intervals)
     tolerance_coverage = {}
-    if intervals is not None:
-        for scale in extra_delta_scales:
-            varied = dict(intervals)
-            varied["gradient_bootstrap_low"] = intervals[f"gradient_c{scale}_low"]
-            varied["gradient_bootstrap_high"] = intervals[f"gradient_c{scale}_high"]
-            tolerance_coverage[scale] = [item for item in
-                _coverage_table(design, pop, est, varied, n_deep)
-                if item["method"] == "gradient_bootstrap"]
+    for scale in extra_delta_scales:
+        varied = dict(intervals)
+        varied["gradient_bootstrap_low"] = intervals[f"gradient_c{scale}_low"]
+        varied["gradient_bootstrap_high"] = intervals[f"gradient_c{scale}_high"]
+        tolerance_coverage[scale] = [item for item in _coverage_table(design, pop, varied)
+                                   if item["method"] == "gradient_bootstrap"]
     return {
         "population": pop,
         "row": row,
@@ -1052,33 +904,15 @@ def _moment(z: np.ndarray, order: int) -> float:
     return float(np.mean(zc**order) / np.mean(zc**2) ** (order / 2.0))
 
 
-def _slice_estimates(est: PointEstimates, n: int) -> PointEstimates:
-    return PointEstimates(
-        sigma=est.sigma[:n], share=est.share[:n], se=est.se[:n], nu=est.nu[:n],
-        ystar=est.ystar[:n], common=est.common[:n], rank=est.rank[:n],
-        rank_tight=est.rank_tight[:n], regular=est.regular[:n],
-        aggregate_var=est.aggregate_var[:n],
-    )
-
-
 def _coverage_table(
     design: Design,
     pop: Population,
-    est: PointEstimates,
-    intervals: dict[str, np.ndarray] | None,
-    n_deep: int,
+    intervals: dict[str, np.ndarray],
 ) -> list[dict]:
     """Two-sided and one-sided coverage of both the estimand and the truth."""
     rows = []
-    sources = {"normal": (est.share - Z95 * est.se, est.share + Z95 * est.se)}
-    n_by_method = {"normal": len(est.share)}
-    if intervals is not None:
-        for name in METHODS:
-            if name == "normal":
-                continue
-            sources[name] = (intervals[f"{name}_low"], intervals[f"{name}_high"])
-            n_by_method[name] = n_deep
-    for name, (lo, hi) in sources.items():
+    for name in METHODS:
+        lo, hi = intervals[f"{name}_low"], intervals[f"{name}_high"]
         # A skipped construction (e.g. subsampling with cfg.n_subsample == 0) reports
         # all-NaN bounds; propagate NaN rather than let "NaN <= x" silently read as a
         # real zero-coverage result.
@@ -1089,7 +923,7 @@ def _coverage_table(
                 "design": design.name,
                 "label": design.label,
                 "method": name,
-                "reps": n_by_method[name],
+                "reps": len(lo),
                 "cover_two_sided_estimand": nan if missing else float(np.mean((lo <= pop.gamma_bar0) & (pop.gamma_bar0 <= hi))),
                 "cover_upper_estimand": nan if missing else float(np.mean(pop.gamma_bar0 <= hi)),
                 "cover_upper_truth": nan if missing else float(np.mean(pop.gamma0 <= hi)),

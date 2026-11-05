@@ -236,7 +236,7 @@ def test_known_optimizer_face():
     directions = rng.standard_normal((12, m, m))
     directions = 0.5 * (directions + directions.transpose(0, 2, 1))
     mine, solved = mc.near_optimal_derivative(
-        directions, sigma, m + mc.FACE_CAP_REL_TOL * m, mu_end=1e-10
+        directions, sigma, m + 1e-8 * m, mu_end=1e-10
     )
     assert solved.all(), "production solver failed on the known bounded face"
     worst_abs = 0.0

@@ -1,104 +1,17 @@
 #!/usr/bin/env python3
 """Hierarchical overview of selected core and additional applications."""
-from functools import partial
 
 import numpy as np
 import pandas as pd
 
 from compute_applications_coefficients import CACHE, core_estimates, summary_path, summary_rows
+from applications.figure_layout import HIERARCHY, hierarchy_positions, tick_labels
+from applications.registry import PANEL_ENTITIES
 from mgp_core import OUTPUT_DIR as OUT
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-
-HIERARCHY = [
-    ("Firms", ["Sales", "Employment", "Productivity"]),
-    ("Returns", ["Stocks", "Mutual funds", "Forbes Billionaires"]),
-    ("Financial flows", ["Bank loans", "Corporate bond issuance", "Mutual fund flows", "Treasury demand by country"]),
-    ("Trade", ["Export products", "Import products", "Export destinations", "Import origins"]),
-    ("Prices and labor", ["Price by item", "Employment by sector"]),
-    ("Innovation", ["Patent count by firm", "Patent value by firm", "Patent count by field", "Patent value by field",
-                    "Drug approvals by firm"]),
-    ("Geography", ["GDP by metro", "GDP by county", "GDP by state"]),
-    ("Elections", ["Democratic votes by state", "Democratic votes by county"]),
-    ("Energy and climate", ["Power generation by plant", "CO2 emissions by plant", "Oil production by country", "CO2 emissions by country"]),
-    ("World economy", ["GDP (PPP) by country", "Mkt cap by country", "Public debt by country", "Private debt by country"]),
-    ("Sector networks", ["No I/O network or lags", "Foerster et al. (2011)",
-                       "Acemoglu et al. (2012)", "Carvalho–Gabaix (2013)", "Atalay (2017)"]),
-    ("Firm networks", ["Stella (2015)", "Herskovic et al. (2020)",
-                       "Welburn et al. (2020)"]),
-]
-
-# These applications reconstruct unavailable inputs or empirical networks
-# rather than running the published empirical package on its complete inputs.
-# Keep the internal keys clean and add the flag only when labels are rendered.
-APPROXIMATE_REPLICATIONS = {
-    "Acemoglu et al. (2012)",
-    "Carvalho–Gabaix (2013)",
-    "Stella (2015)",
-    "Herskovic et al. (2020)",
-    "Welburn et al. (2020)",
-}
-
-
-def available_items():
-    results = pd.read_csv(CACHE / "applications_coefficients_expanded_data.csv")
-    return set(results.loc[results.estimate.notna(), "item"])
-
-
-def hierarchy_positions():
-    positions, headings = {}, []
-    y = 0.0
-    for section, items in HIERARCHY:
-        headings.append((section, y))
-        y += .72
-        for item in items:
-            positions[item] = y
-            y += .72
-        y += .48
-    return positions, headings, y
-
-
-def tick_labels(positions):
-    return [item + ("*" if item in APPROXIMATE_REPLICATIONS else "") for item in positions]
-
-
-def additional_loaders():
-    from applications import run_panels as add
-
-    return {
-        "GDP (PPP) by country": add.load_countries,
-        "Mkt cap by country": add.load_country_equity_returns,
-        "Bank loans": add.load_banks,
-        "GDP by metro": add.load_cities,
-        "Export products": partial(add.load_trade, "exports", "hs2"),
-        "Import products": partial(add.load_trade, "imports", "hs2"),
-        "Export destinations": partial(add.load_trade, "exports", "partners"),
-        "Import origins": partial(add.load_trade, "imports", "partners"),
-        "GDP by state": add.load_states,
-        "GDP by county": add.load_counties,
-        "Power generation by plant": partial(add.load_campd, "Gross Load (MWh)", "Power plants", "Gross-load growth"),
-        "CO2 emissions by plant": partial(add.load_campd, "CO2 Mass (short tons)", "Power-plant emissions", "CO2-emissions growth"),
-        "Patent count by firm": add.load_patents,
-        "Oil production by country": add.load_oil,
-        "Public debt by country": add.load_public_debt,
-        "Private debt by country": add.load_private_debt,
-        "Treasury demand by country": add.load_tic,
-        "CO2 emissions by country": add.load_country_co2,
-        "Corporate bond issuance": add.load_bond_issues,
-    }
-
-
-def innovation_loaders():
-    from applications.innovation import run_innovation_applications as innovation
-
-    return {
-        "Patent value by firm": innovation.patent_value_by_firm,
-        "Patent count by field": innovation.patent_count_by_field,
-        "Patent value by field": innovation.patent_value_by_field,
-        "Drug approvals by firm": innovation.novel_drugs_by_sponsor,
-    }
 
 
 def main():
@@ -156,26 +69,7 @@ def main():
         )
 
     add = summary_rows("additional_applications")
-    add_rows = {
-        "GDP (PPP) by country": "Countries", "Public debt by country": "Public debt by country",
-        "Private debt by country": "Private nonfinancial debt by country",
-        "Mkt cap by country": "Country equity markets",
-        "Bank loans": "Banks", "Corporate bond issuance": "US corporate bond issuers",
-        "Treasury demand by country": "Foreign Treasury holders",
-        "GDP by metro": "Metropolitan areas", "GDP by state": "US states", "GDP by county": "US counties",
-        "Export products": "Exported products", "Import products": "Imported products",
-        "Export destinations": "Export destinations", "Import origins": "Import origins",
-        "Patent count by firm": "Patent assignees", "Power generation by plant": "Power plants",
-        "CO2 emissions by plant": "Power-plant emissions", "Oil production by country": "Oil-producing countries",
-        "CO2 emissions by country": "Country CO2 emissions",
-        "Patent value by firm": "Patent-value firms",
-        "Patent count by field": "Patent-count fields",
-        "Patent value by field": "Patent technology fields",
-        "Drug approvals by firm": "Novel-drug sponsors",
-        "Mutual funds": "Mutual fund portfolios: returns",
-        "Mutual fund flows": "Mutual fund portfolios: flows",
-    }
-    for label, entity in add_rows.items():
+    for label, entity in PANEL_ENTITIES.items():
         if entity not in add.index:
             continue
         r = add.loc[entity]

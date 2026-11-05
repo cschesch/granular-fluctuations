@@ -8,7 +8,6 @@ import numpy as np
 from mgp_core import build_lpt_grouped_data, choose_solver, mgp_share
 from applications.carvalho_gabaix.run_carvalho_gabaix_proxy import (
     Calibration,
-    calibration_sensitivity,
     invert_measured_tfp,
     load_historical_panel,
     validate_source_files,
@@ -49,23 +48,6 @@ def main() -> int:
     )
     result = mgp_share(grouped, choose_solver("auto"))
     assert np.isclose(result["mgp_share"], 0.2764757871623982, rtol=0, atol=1e-9)
-
-    # The inversion removes only a few percent of measured-TFP variance but a large
-    # share of the aggregate variance, so the ceiling moves a lot with theta. Pin the
-    # anchors: theta = 0 is measured TFP taken as primitive, theta = 1 is full
-    # mismeasurement of the variable-labour input.
-    sensitivity = calibration_sensitivity(
-        historical,
-        (influence / influence.sum()).to_numpy(float),
-        m=10,
-        solver=choose_solver("auto"),
-        vintage="historical",
-    )
-    theta = sensitivity.loc[sensitivity["parameter"].eq("theta")].set_index("value")["mgp_share"]
-    assert np.isclose(theta.loc[0.0], 0.1304666370189255, rtol=0, atol=1e-9)
-    assert np.isclose(theta.loc[0.43], result["mgp_share"], rtol=0, atol=1e-9)
-    assert np.isclose(theta.loc[1.0], 0.41847747816704284, rtol=0, atol=1e-9)
-    assert theta.is_monotonic_increasing
 
     print("Carvalho--Gabaix public-proxy checks passed.")
     return 0

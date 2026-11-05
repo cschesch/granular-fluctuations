@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 
 from mgp_core import build_lpt_grouped_data, choose_solver, mgp_share
-from applications.acemoglu.run_acemoglu2012_mgp import (
+from applications.acemoglu.panel import (
     load_nber_manufacturing_panel,
     validate_source_files,
     verify_original_replication_calculations,

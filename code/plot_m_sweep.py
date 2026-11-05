@@ -40,7 +40,7 @@ from applications.bls_cpi.panel import load_bls_cpi_panel
 from applications.crsp.panel import load_crsp_panel
 from applications.forbes.panel import FORBES_ARCHIVE_DAILY, load_forbes_billionaire_panels
 from run_multi_source import DAILY_HIGH_M_THRESHOLD
-from plot_expanded_applications import available_items
+from compute_applications_coefficients import available_items
 
 # Import plotting only after mgp_core has configured its writable cache directory.
 import matplotlib.pyplot as plt

@@ -10,8 +10,9 @@ data and resumable checkpoints live under `.cache/`. Source-specific analyses
 live in `applications/`, with shared estimators and exhibit builders in `code/`.
 
 Each application folder contains its source-specific loader or analysis.
-`applications/common.py` holds shared panel and estimation routines; `tests/`
-contains the checks. Raw inputs live in the corresponding `../data/` source
+`applications/common.py` holds shared panel and estimation routines.
+`applications/registry.py` defines the panel loaders and their paper labels;
+`tests/` contains the checks. Raw inputs live in the corresponding `../data/` source
 folders. Original publication packages stay intact; preprocessing writes only
 to `.cache/`.
 
