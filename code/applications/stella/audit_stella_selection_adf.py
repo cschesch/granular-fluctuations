@@ -8,8 +8,7 @@ firms whose reported p-value exceeds one percent before imposing the balanced
 1970--2011 window.  The dedicated licensed extract supplies ``revtq`` directly and the recovered
 X-12 executable is preferred; historical-vintage differences remain.  X-13 failures are left unclassified and retained for this screen;
 they are separately flagged and neither can enter the eventual balanced panel.
-``--seasonal-spec sax12`` translates the published sax12 estimation options and
-keeps its cache separate from the earlier automdl reconstruction.
+The published sax12 estimation options are translated literally.
 """
 
 from __future__ import annotations
@@ -25,21 +24,20 @@ from statsmodels.tsa.stattools import adfuller
 
 from mgp_core import ROOT
 from applications.stella.prepare_stella_calibration import (
-    OUT,
     QUARTERS,
-    LEGACY_SELECTION_ADF,
     SELECTION_ADF,
     QFILE,
     load_quarterly,
     released_screen_panel,
 )
 from applications.stella.prepare_stella_sales import adjust_one, locate_x13
+from applications.stella.paths import CALIBRATION
 from applications.panels import load_gdp_deflator
 from applications.stella.stella_provenance import archive_existing, file_fingerprints
 from applications.stella.stella_quarterly_inputs import REVENUE_FIELD, input_description
 
 
-DIAGNOSTICS = ROOT / "output/stella_selection_adf_diagnostics.json"
+DIAGNOSTICS = CALIBRATION / "selection_adf_diagnostics.json"
 
 
 def evaluate(
@@ -86,7 +84,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--x12", "--x13", dest="x13", type=Path, default=None)
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--seasonal-spec", choices=["automdl", "sax12"], default="sax12")
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--diagnostics-path", type=Path, default=None)
     parser.add_argument("--save-adjusted", action="store_true", help="cache private adjusted histories for descriptive-moment audits")
@@ -94,8 +91,8 @@ def main() -> None:
 
     executable = locate_x13(args.x13)
     engine = "X-12" if "x12" in executable.name.lower() else "X-13"
-    output = args.output or (LEGACY_SELECTION_ADF if args.seasonal_spec == "automdl" else SELECTION_ADF)
-    diagnostics_path = args.diagnostics_path or (DIAGNOSTICS if args.seasonal_spec == "sax12" else ROOT / "output/stella_selection_adf_automdl_diagnostics.json")
+    output = args.output or SELECTION_ADF
+    diagnostics_path = args.diagnostics_path or DIAGNOSTICS
     selected, union_n = released_screen_panel(load_quarterly())
     selected = selected.sort_values(["gvkey", "quarter"])
     deflator = load_gdp_deflator("quarterly")
@@ -108,13 +105,13 @@ def main() -> None:
 
     # Preserve the released data-specific tid exception literally on this
     # current sorted GVKEY universe; never move it to a series that fails.
-    no_outlier_gvkey = sorted(work)[548] if len(work) >= 549 and args.seasonal_spec == "sax12" else None
+    no_outlier_gvkey = sorted(work)[548] if len(work) >= 549 else None
     rows: list[dict] = []
     adjusted_rows: list[pd.DataFrame] = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
             pool.submit(evaluate, gvkey, series, deflator, executable,
-                        "sax12_no_outlier" if gvkey == no_outlier_gvkey else args.seasonal_spec,
+                        "sax12_no_outlier" if gvkey == no_outlier_gvkey else "sax12",
                         args.save_adjusted): gvkey
             for gvkey, series in work.items()
         }
@@ -125,13 +122,12 @@ def main() -> None:
                 adjusted_rows.append(pd.DataFrame({"gvkey": result["gvkey"], "quarter": work[result["gvkey"]].index.astype(str), "adjusted_nominal_saleq": adjusted}))
             rows.append(result)
     frame = pd.DataFrame(rows).sort_values("gvkey").reset_index(drop=True)
-    OUT.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     archive_existing(output)
     archive_existing(diagnostics_path)
     frame.to_csv(output, index=False)
     if adjusted_rows:
-        pd.concat(adjusted_rows, ignore_index=True).sort_values(["gvkey", "quarter"]).to_parquet(output.with_name(f"selection_{args.seasonal_spec}_adjusted_levels.parquet"), index=False)
+        pd.concat(adjusted_rows, ignore_index=True).sort_values(["gvkey", "quarter"]).to_parquet(output.with_name("selection_sax12_adjusted_levels.parquet"), index=False)
 
     rejected = frame["pvalue"].gt(0.01)
     failures = frame["status"].ne("ok")
@@ -143,14 +139,13 @@ def main() -> None:
         .index
     )
     balanced_rows = frame["gvkey"].isin(balanced_before_adf)
-    balanced_success = balanced_rows & ~failures
     payload = {
         "paper_rule": "Stata dfuller on real seasonally adjusted q/q log revenue growth; default intercept and zero augmentation lags; reject firm when p>0.01",
         "reconstruction_rule": f"statsmodels ADF with constant, maxlag=0, autolag=None on real {engine}/X-11 q/q log {REVENUE_FIELD} growth; MacKinnon approximate p-value",
         "seasonal_adjustment_engine": engine,
         **input_description(),
         "input_file_fingerprints": file_fingerprints([QFILE, executable], ROOT),
-        "seasonal_specification": args.seasonal_spec,
+        "seasonal_specification": "sax12",
         "literal_tid549_current_gvkey": no_outlier_gvkey,
         "tid549_interpretation": "Released tid=549 no-outlier exception applied literally to the current sorted firm list; original GVKEY at that tid is unavailable. It is not reassigned based on adjustment failures.",
         "known_input_differences": [
@@ -176,8 +171,6 @@ def main() -> None:
     diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
     diagnostics_path.write_text(json.dumps(payload, indent=2) + "\n")
     output.with_suffix(".provenance.json").write_text(json.dumps(payload, indent=2) + "\n")
-    if args.diagnostics_path is None and args.seasonal_spec == "sax12":
-        (ROOT / "output/stella_selection_adf_sax12_diagnostics.json").write_text(json.dumps(payload, indent=2) + "\n")
     print(json.dumps(payload, indent=2))
 
 

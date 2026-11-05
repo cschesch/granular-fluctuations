@@ -7,10 +7,10 @@ import json
 import pandas as pd
 
 from applications.stella.audit_stella_growth_moments import growth_moments
+from applications.stella.paths import CALIBRATION, UNBALANCED
 from mgp_core import ROOT, RUN_OUTPUT_CACHE
 
 
-BASE = ROOT / "code/.cache/firm_networks"
 TABLE = ROOT / "output/table_stella_input_moments.tex"
 
 # Each row gives the label, source key, published value, and display format.
@@ -55,15 +55,14 @@ SHARED_TARGETS = {
 
 
 def reconstructed_moments():
-    calibration = BASE / "stella_revtq"
-    moments = json.loads((calibration / "diagnostics.json").read_text())
-    dense = pd.read_csv(calibration / "matrix_io_dense_economic_labeled.csv", index_col=0).gt(0)
+    moments = json.loads((CALIBRATION / "diagnostics.json").read_text())
+    dense = pd.read_csv(CALIBRATION / "matrix_io_dense_economic_labeled.csv", index_col=0).gt(0)
     clients = dense.sum(axis=1)
     return {
         **moments,
         "dense_median_clients": clients.median(),
         "dense_min_clients": clients.min(),
-        **growth_moments(BASE / "stella_revtq_unbalanced"),
+        **growth_moments(UNBALANCED),
     }
 
 

@@ -11,7 +11,6 @@ before solving reconstructed firm inputs.
 from __future__ import annotations
 
 import argparse
-import csv
 import glob
 import json
 import shutil
@@ -22,17 +21,15 @@ from pathlib import Path
 import numpy as np
 
 from mgp_core import ROOT
-from applications.stella.stella_provenance import archive_existing, file_fingerprints, verify_fingerprints
+from project_paths import find_program
+from applications.foerster.prepare import MODEL_INPUTS as FOERSTER_INPUTS, EXPORTS as FOERSTER_EXPORTS
+from applications.stella.paths import CALIBRATION
+from applications.stella.stella_provenance import file_fingerprints, verify_fingerprints
 
 
 CODE = ROOT / "code"
 SOLVER = CODE / "stella_dynamic_solver.m"
-from applications.foerster.prepare import MODEL_INPUTS as FOERSTER_INPUTS, EXPORTS as FOERSTER_EXPORTS
-STELLA_INPUT = ROOT / "code/.cache/firm_networks/stella_literal"
-STELLA_OUTPUT = STELLA_INPUT / "dynamic_solution"
-AUDIT_JSON = ROOT / "output/stella_dynamic_solver_benchmark.json"
-AUDIT_CSV = ROOT / "output/stella_dynamic_solver_benchmark.csv"
-OUTPUT_MATRICES = ("pii_a.csv", "xi.csv", "cap_rho.csv")
+
 
 def find_gensys() -> Path:
     import os
@@ -40,6 +37,7 @@ def find_gensys() -> Path:
         path = Path(configured)
         if (path / "gensys.m").is_file():
             return path
+        raise FileNotFoundError(f"GENSYS_DIR does not contain gensys.m: {path}")
     candidates = sorted(
         glob.glob("/usr/local/Cellar/dynare/*/lib/dynare/contrib/ms-sbvar/TZcode/MatlabFiles"),
         reverse=True,
@@ -111,56 +109,29 @@ def benchmark(octave: str, gensys_dir: Path, tolerance: float) -> tuple[list[dic
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--benchmark-only", action="store_true")
-    parser.add_argument("--input-dir", type=Path, default=STELLA_INPUT)
+    parser.add_argument("--input-dir", type=Path, default=CALIBRATION)
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="defaults to INPUT_DIR/dynamic_solution")
-    parser.add_argument("--octave", default=shutil.which("octave") or "/usr/local/bin/octave")
+    parser.add_argument("--octave")
     parser.add_argument("--gensys-dir", type=Path, default=None)
     parser.add_argument("--tolerance", type=float, default=1e-8)
-    parser.add_argument("--promote-from", type=Path,
-                        help="install an already solved, benchmarked staging directory after verifying its input hashes")
     args = parser.parse_args()
+    octave = find_program("octave", args.octave)
+    if octave is None:
+        parser.error("Octave is required; set OCTAVE or pass --octave.")
     output_dir = args.output_dir or args.input_dir / "dynamic_solution"
-    if args.promote_from:
-        source = args.promote_from.resolve()
-        payload = json.loads((source / "benchmark_and_solver_diagnostics.json").read_text())
-        if not payload["all_pass"]:
-            raise ValueError("Cannot promote a failed dynamic-solver benchmark.")
-        verify_fingerprints(payload["input_file_fingerprints"], ROOT)
-        n = int(payload["stella_solver_diagnostics"]["N"])
-        for name in OUTPUT_MATRICES:
-            matrix = np.loadtxt(source / name, delimiter=",")
-            if matrix.shape != (n, n) or not np.isfinite(matrix).all():
-                raise ValueError(f"Invalid staged solver matrix: {name}")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for name in [*OUTPUT_MATRICES, "solver_diagnostics.csv", "benchmark_and_solver_diagnostics.json"]:
-            if (source / name).resolve() != (output_dir / name).resolve():
-                archive_existing(output_dir / name)
-                shutil.copy2(source / name, output_dir / name)
-        print(json.dumps({"promoted_from": str(source), "promoted_to": str(output_dir), "N": n}, indent=2))
-        return
     gensys_dir = args.gensys_dir or find_gensys()
-
-    rows, payload = benchmark(args.octave, gensys_dir, args.tolerance)
-    AUDIT_JSON.write_text(json.dumps(payload, indent=2) + "\n")
-    with AUDIT_CSV.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
+    _, payload = benchmark(octave, gensys_dir, args.tolerance)
     if not payload["all_pass"]:
-        raise RuntimeError(f"Dynamic solver failed Foerster benchmark; see {AUDIT_JSON}")
-    if not args.benchmark_only:
-        input_fingerprints = file_fingerprints(
-            [args.input_dir / f"{name}.csv" for name in ("matrix_io", "alpha", "matrix_capital")], ROOT)
-        payload["stella_solver_diagnostics"] = run_solver(
-            args.input_dir, output_dir, args.octave, gensys_dir
-        )
-        verify_fingerprints(input_fingerprints, ROOT)
-        payload["input_file_fingerprints"] = input_fingerprints
-        (output_dir / "benchmark_and_solver_diagnostics.json").write_text(
-            json.dumps(payload, indent=2) + "\n"
-        )
+        raise RuntimeError(f"Dynamic solver failed Foerster benchmark:\n{json.dumps(payload, indent=2)}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    diagnostics = output_dir / "benchmark_and_solver_diagnostics.json"
+    input_fingerprints = file_fingerprints(
+        [args.input_dir / f"{name}.csv" for name in ("matrix_io", "alpha", "matrix_capital")], ROOT)
+    payload["stella_solver_diagnostics"] = run_solver(args.input_dir, output_dir, octave, gensys_dir)
+    verify_fingerprints(input_fingerprints, ROOT)
+    payload["input_file_fingerprints"] = input_fingerprints
+    diagnostics.write_text(json.dumps(payload, indent=2) + "\n")
     print(json.dumps(payload, indent=2))
 
 

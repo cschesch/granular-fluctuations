@@ -15,7 +15,6 @@ from wrds_inputs import wrds_path
 DATA = ROOT / "data"
 OUT = ROOT / "output"
 CACHE = CODE_DIR / ".cache/run_outputs"
-STELLA = ".cache/firm_networks/stella_revtq"
 STELLA_DATA = DATA / "stella2015"
 STELLA_PUBLIC = STELLA_DATA / "public_inputs"
 ALIASES = DATA / "compustat/welburn_customer_aliases.csv"
@@ -159,17 +158,13 @@ APPLICATIONS = (
              (STELLA_DATA / "source.zip",)),
     Analysis("Stella", (
         ("applications.welburn.prepare_welburn_links",),
-        ("applications.stella.audit_stella_selection_adf", "--output", f"{STELLA}/selection_adf_pvalues_sax12.csv",
-         "--diagnostics-path", f"{STELLA}/selection_adf_diagnostics.json", "--save-adjusted"),
-        ("applications.stella.prepare_stella_calibration", "--output-dir", STELLA,
-         "--selection-adf", f"{STELLA}/selection_adf_pvalues_sax12.csv",
-         "--checks-output", f"{STELLA}/network_checks.csv"),
-        ("applications.stella.prepare_stella_unbalanced", "--source-dir", STELLA, "--output-dir", f"{STELLA}_unbalanced"),
-        ("applications.stella.prepare_stella_sales", "--calibration-dir", STELLA, "--seasonal-spec", "sax12"),
-        ("applications.stella.validate_stella_calibration_source", "--calibration-dir", STELLA,
-         "--output", f"{STELLA}/original_constructor_validation.json"),
-        ("applications.stella.solve_stella_dynamic", "--input-dir", STELLA),
-        ("applications.stella.run_stella_firm_network", "--calibration-dir", STELLA, "--output-stem", "stella_revtq_firm_network"),
+        ("applications.stella.audit_stella_selection_adf", "--save-adjusted"),
+        ("applications.stella.prepare_stella_calibration",),
+        ("applications.stella.prepare_stella_unbalanced",),
+        ("applications.stella.prepare_stella_sales",),
+        ("applications.stella.validate_stella_calibration_source",),
+        ("applications.stella.solve_stella_dynamic",),
+        ("applications.stella.run_stella_firm_network",),
         ("applications.stella.audit_stella_input_moments",),
     ), (
         ANNUAL, CUSTOMERS, GDPDEF, ALIASES, stella_input(),

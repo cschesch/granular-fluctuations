@@ -3,9 +3,8 @@
 
 The binary relationship is the input to Welburn et al.'s link model and flow
 calibration.  It must therefore retain an identified named customer even when
-Compustat does not report ``salecs`` for that relationship.  A separate file of
-positive reported customer sales is retained for validation and other uses.
-Licensed row-level outputs stay under .cache.
+Compustat does not report ``salecs`` for that relationship. The matched rows
+feed both Welburn and Stella; licensed row-level outputs stay under .cache.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from mgp_core import ROOT
 DEFAULT_CUSTOMERS = wrds_path("compustat_customers")
 DEFAULT_FUNDA = wrds_path("compustat_annual")
 DEFAULT_CACHE = ROOT / "code/.cache/firm_networks"
-DEFAULT_DIAGNOSTICS = ROOT / "output/welburn_observed_link_diagnostics.json"
+DEFAULT_DIAGNOSTICS = DEFAULT_CACHE / "customer_name_matching_diagnostics.json"
 STELLA_ALIASES = ROOT / "data/stella2015/manual_customer_aliases.csv"
 WELBURN_ALIASES = ROOT / "data/compustat/welburn_customer_aliases.csv"
 
@@ -141,25 +140,8 @@ def prepare(
         pieces.append(chunk)
 
     links = pd.concat(pieces, ignore_index=True)
-    valid = links[
-        links["year"].notna() & links["usable_name"] & links["customer_gvkey"].notna()
-        & links["gvkey"].ne(links["customer_gvkey"])
-    ].copy()
-    valid["year"] = valid["year"].astype(int)
-    binary = valid.groupby(["year", "gvkey", "customer_gvkey"], as_index=False).agg(
-        salecs=("salecs", lambda x: x.sum(min_count=1)),
-        source_rows=("customer_key", "size"),
-    )
-    flows = binary.loc[binary["salecs"].gt(0), ["year", "gvkey", "customer_gvkey", "salecs"]]
-
     links.to_parquet(cache_dir / "customer_name_matches.parquet", index=False)
-    binary.to_parquet(cache_dir / "observed_supplier_customer_links.parquet", index=False)
-    flows.to_parquet(cache_dir / "observed_supplier_customer_flows.parquet", index=False)
-
-    positive = links["salecs"].gt(0)
     matched = links["customer_gvkey"].notna()
-    total_sales = float(links.loc[positive, "salecs"].sum())
-    matched_sales = float(links.loc[positive & matched, "salecs"].sum())
     diagnostics = {
         "raw_company_rows": raw_company_rows,
         "rows_with_usable_names": int(links["usable_name"].sum()),
@@ -173,20 +155,6 @@ def prepare(
             links["match_method"].eq("reviewed_alias_or_parent").sum()
         ),
         "reviewed_aliases_available": int(len(reviewed)),
-        "positive_sales_rows": int(positive.sum()),
-        "positive_sales_rows_matched": int((positive & matched).sum()),
-        "resolved_share_positive_rows": float((positive & matched).sum() / max(positive.sum(), 1)),
-        "resolved_share_positive_sales": matched_sales / max(total_sales, 1.0),
-        "observed_directed_firm_year_binary_links": int(len(binary)),
-        "observed_directed_firm_year_links_with_positive_sales": int(len(flows)),
-        # Backward-compatible name: this used to be the positive-sales count.
-        "observed_directed_firm_year_links": int(len(binary)),
-        "unique_suppliers_in_binary_links": int(binary["gvkey"].nunique()),
-        "unique_customers_in_binary_links": int(binary["customer_gvkey"].nunique()),
-        "unique_suppliers_in_matched_flows": int(flows["gvkey"].nunique()),
-        "unique_customers_in_matched_flows": int(flows["customer_gvkey"].nunique()),
-        "first_year": int(binary["year"].min()),
-        "last_year": int(binary["year"].max()),
         "row_level_outputs": "Licensed; stored only in code/.cache/firm_networks.",
         "network_input_note": (
             "Welburn's binary adjacency uses every resolved named relationship; positive salecs "

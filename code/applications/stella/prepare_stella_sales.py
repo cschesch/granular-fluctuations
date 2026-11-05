@@ -3,8 +3,8 @@
 
 Stella's Stata code applies Census X-12 to log nominal ``revtq`` with automatic
 outlier selection and takes X-11 table D11, then deflates, log-differences,
-and demeans within firm. ``--seasonal-spec sax12`` translates its emitted
-estimation options literally. The dedicated WRDS extract supplies ``revtq`` directly.
+and demeans within firm. The emitted sax12 estimation options are translated
+literally. The dedicated WRDS extract supplies ``revtq`` directly.
 The recovered original X-12 build is preferred when available; X-13 is a
 separately labelled engine alternative. Legacy saleq filenames are retained
 for downstream compatibility, without filling missing revenue from sales.
@@ -28,10 +28,10 @@ import pandas as pd
 
 from mgp_core import ROOT
 from applications.panels import load_gdp_deflator
+from applications.stella.paths import CALIBRATION
 from applications.stella.stella_provenance import archive_existing, file_fingerprints
 
 
-CALIBRATION = ROOT / "code/.cache/firm_networks/stella_literal"
 DEFAULT_X13 = ROOT / "code/.cache/tools/x13binary/x13ashtml"
 DEFAULT_X12 = ROOT / "code/.cache/tools/x12a_v03/source/x12a"
 X12_BUILD_MANIFEST = ROOT / "code/.cache/tools/x12a_v03/build_manifest.json"
@@ -71,14 +71,6 @@ def x13_spec(values: np.ndarray, title: str, start: pd.Period,
 forecast{maxlead=12 maxback=0 probability=0.95}
 estimate{}
 x11{seasonalma=msr save=(d11)}"""
-    elif seasonal_spec == "automdl":
-        # Archived reconstruction specification; retained as a sensitivity.
-        model = """outlier{}
-automdl{
- maxorder=(2 1)
- maxdiff=(2 1)
-}
-x11{save=(d11)}"""
     else:
         raise ValueError(seasonal_spec)
     if seasonal_spec == "sax12_no_outlier":
@@ -180,7 +172,6 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--calibration-dir", type=Path, default=CALIBRATION)
     parser.add_argument("--diagnostics-path", type=Path, default=None)
-    parser.add_argument("--seasonal-spec", choices=["sax12"], default="sax12")
     args = parser.parse_args()
     executable = locate_x13(args.x13)
     engine = "X-12" if "x12" in executable.name.lower() else "X-13"
@@ -199,7 +190,7 @@ def main() -> None:
     source_adf = json.loads(selection_provenance.read_text()) if selection_provenance.exists() else {}
     no_outlier_gvkey = source_adf.get("literal_tid549_current_gvkey")
     def firm_spec(gvkey):
-        return "sax12_no_outlier" if args.seasonal_spec == "sax12" and gvkey == no_outlier_gvkey else args.seasonal_spec
+        return "sax12_no_outlier" if gvkey == no_outlier_gvkey else "sax12"
     spells = full_consecutive_spells(levels)
     adjusted = pd.DataFrame(index=levels.index, columns=levels.columns, dtype=float)
     errors: dict[str, str] = {}
@@ -240,7 +231,7 @@ def main() -> None:
         "input_variable_in_reconstruction": input_description()["input_revenue_field"],
         **input_description(),
         "paper_seasonal_adjustment": "Stata sax12: log transform, outauto(all), outmethod(addone), no explicit ARIMA model or automdl, X-11 seasonalma=msr and D11; sax12.ado 2012-03-14",
-        "seasonal_specification": args.seasonal_spec,
+        "seasonal_specification": "sax12",
         "literal_tid549_current_gvkey": no_outlier_gvkey,
         "reconstruction_seasonal_adjustment": f"Published sax12 estimation options translated literally to Census {engine}: log; outlier types=all method=addone; no automdl; forecast maxlead=12 maxback=0 probability=.95; estimate{{}}; X-11 seasonalma=msr and D11. Diagnostic-only sliding-span/history requests omitted.",
         "x13_executable": str(executable),

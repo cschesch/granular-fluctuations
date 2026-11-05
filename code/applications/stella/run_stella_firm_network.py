@@ -32,12 +32,10 @@ from applications.foerster.run_foerster_epsilon import (
     network_variance_matrix,
 )
 from applications.stella.stella_provenance import archive_existing, file_fingerprints, verify_fingerprints
+from applications.stella.paths import CALIBRATION
 
 
-CALIBRATION = ROOT / "code/.cache/firm_networks/stella_literal"
-PAPER_CALIBRATION = CALIBRATION.with_name("stella_revtq")
 DYNAMIC = CALIBRATION / "dynamic_solution"
-DIAGNOSTICS = ROOT / "output/stella_firm_network_diagnostics.json"
 
 
 def load_growth(calibration: Path = CALIBRATION) -> pd.DataFrame:
@@ -125,7 +123,7 @@ def main() -> None:
     calibration = args.calibration_dir.resolve()
     if calibration != CALIBRATION.resolve() and not args.output_stem:
         raise ValueError("A separate calibration requires --output-stem to preserve baseline results.")
-    output_stem = args.output_stem or "stella_firm_network"
+    output_stem = args.output_stem or "stella_revtq_firm_network"
     if not output_stem.replace("_", "").isalnum():
         raise ValueError("--output-stem must contain only letters, numbers and underscores.")
     ids = load_firm_ids(calibration)
@@ -213,7 +211,7 @@ def main() -> None:
         "top1_exposure_share": float(exposure_shares.max()),
         "top10_exposure_share": float(np.sort(exposure_shares)[-10:].sum()),
         "official_archive": "data/stella2015/source.zip",
-        "solver_validation": "output/stella_dynamic_solver_benchmark.json",
+        "solver_validation": str((calibration / "dynamic_solution/benchmark_and_solver_diagnostics.json").relative_to(ROOT)),
         "input_revenue_field": sales_diagnostics.get("input_revenue_field", "saleq"),
         "remaining_outcome_gap": f"Uses current-vintage {sales_diagnostics.get('input_revenue_field', 'saleq')} adjusted with {sales_diagnostics.get('seasonal_adjustment_engine', 'X-13')}/X-11. The sax12 variant reproduces the released seasonal specification; the historical Compustat vintage and exact original executable build remain unavailable.",
         "seasonal_adjustment_engine": sales_diagnostics.get("seasonal_adjustment_engine", "X-13"),
@@ -227,7 +225,7 @@ def main() -> None:
             + [calibration / "dynamic_solution" / name for name in
                ("pii_a.csv", "xi.csv", "cap_rho.csv")], ROOT),
     }
-    diagnostic_path = DIAGNOSTICS if output_stem == "stella_firm_network" else ROOT / "output" / f"{output_stem}_sax12_diagnostics.json"
+    diagnostic_path = ROOT / "output" / f"{output_stem}_sax12_diagnostics.json"
     archive_existing(diagnostic_path)
     diagnostic_path.write_text(json.dumps(diagnostics, indent=2) + "\n")
     pd.DataFrame(shocks, index=periods, columns=ids).to_pickle(

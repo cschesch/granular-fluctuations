@@ -27,6 +27,7 @@ from factor_rank import factor_rank_tests, j_test_reportable
 from mgp_core import ROOT, RUN_OUTPUT_CACHE, align_sizes_to_panel, build_lpt_grouped_data, lpt_buckets
 from applications.figure_layout import HIERARCHY
 from applications.registry import panel_loaders, innovation_loaders
+from applications.stella.paths import CALIBRATION
 from compute_applications_coefficients import available_items
 
 
@@ -242,8 +243,8 @@ def network_panels(available=None) -> list[Panel]:
         panels.append(atalay_panel)
 
     if available is None or "Stella (2015)" in available:
-        ids = stella.load_firm_ids(stella.PAPER_CALIBRATION)
-        _, full_shocks, _, _, network_v = stella.load_dynamic_panel(stella.PAPER_CALIBRATION, ids)
+        ids = stella.load_firm_ids(CALIBRATION)
+        _, full_shocks, _, _, network_v = stella.load_dynamic_panel(CALIBRATION, ids)
         shocks = full_shocks[2:]
         exposures = np.sqrt(np.maximum(np.diag(network_v), 0))
         m_stella = rank_test_m(len(ids), len(shocks))
@@ -366,15 +367,13 @@ def build_panel_cache(
 def run_tests(manifest: list[dict[str, object]], args: argparse.Namespace) -> None:
     RESULT_CACHE.mkdir(parents=True, exist_ok=True)
     selected = set(args.only or [])
-    not_estimable = set(args.mark_not_estimable or [])
     for meta in manifest:
         if selected and meta["dataset"] not in selected and meta["item"] not in selected:
             continue
         if int(meta["M"]) > args.max_dimension:
             continue
         result_path = RESULT_CACHE / f"{slug(str(meta['dataset']))}.pkl"
-        if (meta["dataset"] in not_estimable or meta["item"] in not_estimable
-                or not j_test_reportable(int(meta["M"]), int(meta["T"]))):
+        if not j_test_reportable(int(meta["M"]), int(meta["T"])):
             pd.to_pickle(
                 {
                     **meta,
@@ -405,16 +404,10 @@ def run_tests(manifest: list[dict[str, object]], args: argparse.Namespace) -> No
                 continue
             print(f"[rank] stale cache, recomputing {meta['item']}", flush=True)
         print(f"\n[rank] {meta['item']}: T={x.shape[0]}, M={x.shape[1]}", flush=True)
-        # Include the diagonal (zero-factor) model so "smallest non-rejected"
-        # means exactly what the text says, rather than being truncated at one.
-        min_rank = 0
         try:
             detail, summary = factor_rank_tests(
-                x, alpha=args.alpha, min_rank=min_rank, include_gmm=True,
+                x, alpha=args.alpha,
                 maxiter_ml=args.maxiter_ml, maxiter_gmm=args.maxiter_gmm,
-                include_corrected=False,
-                stop_after_first_j_accept=False,
-                rank_search="safeguarded_secant" if int(meta["M"]) > 10 else "sequential",
                 progress_label=str(meta["dataset"]),
             )
             detail.to_pickle(RESULT_CACHE / f"{slug(str(meta['dataset']))}_detail.pkl")
@@ -466,19 +459,11 @@ def main() -> None:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--only", nargs="+")
     parser.add_argument("--available-only", action="store_true", help="Use applications in the current Figure 1 results.")
-    parser.add_argument("--networks-only", action="store_true",
-                        help="Refresh network inputs and retain other cached applications.")
-    parser.add_argument("--mark-not-estimable", nargs="+")
     parser.add_argument("--max-dimension", type=int, default=10)
     parser.add_argument("--alpha", type=float, default=0.05)
     parser.add_argument("--maxiter-ml", type=int, default=2000)
     parser.add_argument("--maxiter-gmm", type=int, default=2000)
     args = parser.parse_args()
-    if args.networks_only:
-        if args.only:
-            parser.error("Use either --networks-only or --only.")
-        args.only = sorted(NETWORK_ITEMS)
-        args.refresh_panels = True
     available = available_items() if args.available_only else None
     manifest = build_panel_cache(args.refresh_panels, args.only, available)
     expected = len(available) if available is not None else sum(len(items) for _, items in HIERARCHY)

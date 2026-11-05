@@ -15,7 +15,7 @@ exhibit builders, and tests:
   gap-bound ingredients);
 * the LPT squared-bucket-size figure (draft Figure 1) and shared plot helpers.
 
-The factor-rank LR/J/corrected tests live in ``factor_rank.py``.
+The factor-rank LR/J tests live in ``factor_rank.py``.
 
 Each panel draws from a deterministic, order-independent random stream via
 ``make_panel_rng``; do not change the numerical path of the estimators or

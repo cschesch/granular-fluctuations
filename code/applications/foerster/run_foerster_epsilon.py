@@ -19,17 +19,13 @@ from mgp_core import (
     align_sizes_to_panel,
     build_lpt_grouped_data,
     choose_solver,
-    default_subsample_length,
     make_panel_rng,
     moving_block_indices,
     plot_lpt_squared_bucket_sizes,
     regularity_report,
     sample_cov,
     solve_grouped_mgp_dual,
-    subsample_indices,
-    subsampling_summary,
 )
-from factor_rank import factor_rank_tests
 from near_optimal import delta_rate, near_optimal_derivative
 from applications.panels import SourcePanel
 from run_multi_source import lpt_diagnostics, output_prefix
@@ -191,21 +187,10 @@ def reported_dynamic_share(value: float) -> float:
 _DYNAMIC_SHARE_REPORT_FIELDS = (
     "mgp_share",
     "normal_ucl95",
-    "bootstrap_mean",
-    "bootstrap_p05",
-    "bootstrap_p50",
-    "bootstrap_p95",
-    "moving_block_bootstrap_mean",
-    "moving_block_bootstrap_p05",
-    "moving_block_bootstrap_p50",
-    "moving_block_bootstrap_p95",
     "gradient_bootstrap_p05",
     "gradient_bootstrap_p95",
     "moving_block_gradient_bootstrap_p05",
     "moving_block_gradient_bootstrap_p95",
-    "subsample_p05",
-    "subsample_p95",
-    "subsample_ucl95",
 )
 
 
@@ -284,62 +269,6 @@ def network_observed_stats(
     return observed
 
 
-def network_share_for_indices(
-    x_grouped: np.ndarray,
-    eps_obs: np.ndarray,
-    idx: np.ndarray,
-    network_v: np.ndarray,
-    weight_scale: float,
-    solver: str,
-) -> dict[str, object]:
-    sigma_g = sample_cov(x_grouped[idx])
-    sigma_eps = sample_cov(eps_obs[idx])
-    out = network_share_from_covariances(sigma_g, sigma_eps, network_v, weight_scale, solver)
-    out.pop("Y", None)
-    return out
-
-
-def resample_network_mgp(
-    x_grouped: np.ndarray,
-    eps_obs: np.ndarray,
-    network_v: np.ndarray,
-    weight_scale: float,
-    b: int,
-    solver: str,
-    rng: np.random.Generator,
-    mode: str,
-    progress_every: int,
-    block_length: int | None = None,
-) -> pd.DataFrame:
-    if b <= 0:
-        return pd.DataFrame()
-    t = x_grouped.shape[0]
-    rows: list[dict[str, object]] = []
-    print(
-        f"[{mode}] starting {b} network-exposure resamples"
-        + (f", block_length={block_length}" if mode == "moving_block_bootstrap" else ""),
-        flush=True,
-    )
-    for j in range(1, b + 1):
-        if mode == "bootstrap":
-            idx = rng.choice(t, size=t, replace=True)
-        elif mode == "moving_block_bootstrap":
-            idx = moving_block_indices(t, int(block_length), rng)
-        else:
-            raise ValueError(f"Unknown network resampling mode {mode!r}")
-        row = network_share_for_indices(x_grouped, eps_obs, idx, network_v, weight_scale, solver)
-        row.update({"mode": mode, "draw": j, "block_length": block_length if mode == "moving_block_bootstrap" else np.nan})
-        rows.append(row)
-        if j == 1 or j % progress_every == 0 or j == b:
-            print(
-                f"[{mode}] draw {j:>4}/{b}: "
-                f"mean={np.mean([r['mgp_share'] for r in rows]):.4f}, "
-                f"last={row['mgp_share']:.4f}",
-                flush=True,
-            )
-    return pd.DataFrame(rows)
-
-
 def network_gradient_family(
     x_grouped: np.ndarray,
     eps_obs: np.ndarray,
@@ -356,7 +285,6 @@ def network_gradient_family(
     sigma_g = sample_cov(x_grouped)
     sigma_eps = sample_cov(eps_obs)
     mgp = solve_grouped_mgp_dual(sigma_g, solver)
-    y_dual = np.asarray(mgp["Y"], dtype=float)
     gamma_level = weight_scale * float(mgp["value"])
     denom = network_denominator(sigma_eps, network_v)
     g_hat = gamma_level / denom
@@ -375,16 +303,13 @@ def network_gradient_family(
         flush=True,
     )
 
-    def pass_draws(idx_list: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    def pass_draws(idx_list: list[np.ndarray]) -> np.ndarray:
         n = len(idx_list)
-        g_vals = np.empty(n)
         h_g = np.empty((n, m, m))
         den_deriv = np.empty(n)
         for k, idx in enumerate(idx_list):
             sig_g_b = sample_cov(x_grouped[idx])
             sig_eps_b = sample_cov(eps_obs[idx])
-            draw = network_share_from_covariances(sig_g_b, sig_eps_b, network_v, weight_scale, solver)
-            g_vals[k] = float(draw["mgp_share_uncapped"])
             h_g[k] = np.sqrt(t) * (sig_g_b - sigma_g)
             den_deriv[k] = matrix_inner(network_v, np.sqrt(t) * (sig_eps_b - sigma_eps))
         level, ok = near_optimal_derivative(h_g, sigma_g[None], np.array([cap]))
@@ -395,12 +320,12 @@ def network_gradient_family(
         d_vals = network_share_directional_derivative(
             weight_scale * level, den_deriv, g_hat, denom
         )
-        return g_vals, d_vals
+        return d_vals
 
     idx_iid = [rng.choice(t, size=t, replace=True) for _ in range(b)]
     idx_blk = [moving_block_indices(t, block_length, rng) for _ in range(b)]
-    g_iid, d_iid = pass_draws(idx_iid)
-    g_blk, d_blk = pass_draws(idx_blk)
+    d_iid = pass_draws(idx_iid)
+    d_blk = pass_draws(idx_blk)
 
     rt = np.sqrt(t)
     grad_low = float(g_hat - np.quantile(d_iid, 0.95) / rt)
@@ -422,51 +347,16 @@ def network_gradient_family(
     }
 
 
-def subsample_network_mgp(
-    x_grouped: np.ndarray,
-    eps_obs: np.ndarray,
-    network_v: np.ndarray,
-    weight_scale: float,
-    ell: int,
-    n_sub: int,
-    solver: str,
-    rng: np.random.Generator,
-    progress_every: int,
-    g_hat: float,
-) -> tuple[pd.DataFrame, dict[str, float]]:
-    t = x_grouped.shape[0]
-    idx_list = subsample_indices(t, ell, n_sub, rng, overlapping=True)
-    rows = []
-    print(f"[network_subsample] ell={ell}, n={len(idx_list)} (overlapping blocks)", flush=True)
-    for j, idx in enumerate(idx_list, 1):
-        g_b = float(
-            network_share_for_indices(
-                x_grouped, eps_obs, idx, network_v, weight_scale, solver
-            )["mgp_share_uncapped"]
-        )
-        rows.append({"subsample": j, "ell": ell, "g_sub": g_b, "L": float(np.sqrt(ell) * (g_b - g_hat))})
-        if j == 1 or j % progress_every == 0 or j == len(idx_list):
-            print(f"[network_subsample] {j:>4}/{len(idx_list)}", flush=True)
-    draws = pd.DataFrame(rows)
-    return draws, subsampling_summary(draws, g_hat, t)
-
-
 def run_network_exposure_panel(
     panel: SourcePanel,
-    original_weight_sizes: pd.Series,
     network_sizes: pd.Series,
     network_v: np.ndarray,
     m: int,
     block_length: int,
     bootstrap_b: int,
-    block_bootstrap_b: int,
-    subsample_n: int,
     solver: str,
-    rng: np.random.Generator,
     gradient_rng: np.random.Generator,
     out_root: Path,
-    progress_every: int,
-    run_profile: str,
 ) -> dict[str, object]:
     y, sizes = align_sizes_to_panel(panel.y, network_sizes)
     order_pos = [int(str(idx).split("_")[-1]) - 1 for idx in y.index]
@@ -482,16 +372,6 @@ def run_network_exposure_panel(
     regularity = regularity_report(sigma_grouped, solver)
     hhi = float(np.sum(shares**2))
 
-    # Distribution-free J-test factor rank on the grouped panel, exactly as for the
-    # M=10 columns of Table 1 (smallest non-rejected rank; ">=" if all rejected).
-    try:
-        _, rank_summary = factor_rank_tests(x_grouped, alpha=0.05, progress_label=f"foerster_network_M{m}")
-        factor_lb_j = rank_summary.get("factor_lb_J", np.nan)
-        regular_certified_j = bool(rank_summary.get("regular_certified_J", False))
-    except Exception as exc:
-        print(f"[foerster_epsilon_network_M{m}] J-test skipped: {type(exc).__name__}: {exc}", flush=True)
-        factor_lb_j, regular_certified_j = np.nan, False
-
     print(
         f"\n[foerster_epsilon_network_M{m}] N={y.shape[0]:,}, T={y.shape[1]:,}, M={m}, "
         f"start={panel.start_date}, last={panel.last_date}, block={block_length}",
@@ -504,64 +384,26 @@ def run_network_exposure_panel(
         flush=True,
     )
 
-    bootstrap = resample_network_mgp(
-        x_grouped, eps_obs, network_v_sorted, weight_scale,
-        b=bootstrap_b, solver=solver, rng=rng, mode="bootstrap",
-        progress_every=progress_every,
-    )
-    block_bootstrap = resample_network_mgp(
-        x_grouped, eps_obs, network_v_sorted, weight_scale,
-        b=block_bootstrap_b, solver=solver, rng=rng, mode="moving_block_bootstrap",
-        progress_every=progress_every, block_length=block_length,
-    )
     gradient = network_gradient_family(
         x_grouped, eps_obs, network_v_sorted, weight_scale,
-        b=min(bootstrap_b, block_bootstrap_b), block_length=block_length,
+        b=bootstrap_b, block_length=block_length,
         rng=gradient_rng, solver=solver,
     )
-
-    ell = default_subsample_length(y.shape[1], m)
-    if subsample_n > 0 and ell < y.shape[1]:
-        subsamples, sub_ci = subsample_network_mgp(
-            x_grouped, eps_obs, network_v_sorted, weight_scale,
-            ell=ell, n_sub=subsample_n, solver=solver, rng=rng,
-            progress_every=progress_every, g_hat=observed["mgp_share_uncapped"],
-        )
-    else:
-        subsamples = pd.DataFrame()
-        sub_ci = {}
 
     out_root.mkdir(parents=True, exist_ok=True)
     prefix = output_prefix(f"foerster_epsilon_network_M{m}")
     firm_diag, bucket_diag = lpt_diagnostics(y.index, shares, panel.labels, buckets, loads)
-    mean_weights = original_weight_sizes.reindex(y.index).astype(float)
-    mean_weights = mean_weights / mean_weights.sum()
-    firm_diag["ip_weight_share"] = mean_weights.to_numpy()
     RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
-    pd.concat([bootstrap, block_bootstrap], ignore_index=True).to_pickle(
-        RUN_OUTPUT_CACHE / f"{prefix}_draws_resampling.pkl"
+    plot_lpt_squared_bucket_sizes(
+        firm_diag.rename(columns={"unit_id": "gvkey"}),
+        bucket_diag,
+        out_root / f"lpt_{prefix}",
+        ylabel=r"Bucket squared-influence load: $\sum_{i\in B_m} V_i^2$",
     )
-    if not subsamples.empty:
-        subsamples.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_draws_subsampling.pkl")
-    firm_diag.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_diag_units.pkl")
-    bucket_diag.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_diag_buckets.pkl")
-    try:
-        plot_lpt_squared_bucket_sizes(
-            firm_diag.rename(columns={"unit_id": "gvkey"}),
-            bucket_diag,
-            out_root / f"lpt_{prefix}",
-            ylabel=r"Bucket squared-influence load: $\sum_{i\in B_m} V_i^2$",
-        )
-    except Exception as exc:
-        print(f"[foerster_epsilon_network_M{m}] LPT plot skipped: {type(exc).__name__}: {exc}", flush=True)
-
-    boot_vals = bootstrap["mgp_share_uncapped"] if not bootstrap.empty else pd.Series(dtype=float)
-    block_vals = block_bootstrap["mgp_share_uncapped"] if not block_bootstrap.empty else pd.Series(dtype=float)
     summary = {
         "dataset": f"foerster_epsilon_network_M{m}",
         "table_column": f"Network exposure M={m}",
         "table_outcome": "network-propagated epsilon bound",
-        "run_profile": run_profile,
         "frequency": panel.frequency,
         "value_name": "Foerster epsilon innovations with FSW network exposure denominator",
         "size_name": "FSW network exposure L_i",
@@ -573,8 +415,6 @@ def run_network_exposure_panel(
         "T": y.shape[1],
         "M": m,
         "bootstrap_b": bootstrap_b,
-        "block_bootstrap_b": block_bootstrap_b,
-        "requested_subsample_n": subsample_n,
         "block_length": block_length,
         "coverage": panel.coverage,
         "HHI": hhi,
@@ -585,20 +425,9 @@ def run_network_exposure_panel(
         **{k: v for k, v in observed.items() if k not in {"solver", "status", "dual_min_eig", "dual_min_diag"}},
         "ledermann_kbar": regularity["ledermann_kbar"],
         "common_rank": regularity["common_rank"],
-        "factor_lb_J": factor_lb_j,
-        "regular_certified_J": regular_certified_j,
         "regular": regularity["regular"],
         "rank_gap_ratio": regularity["rank_gap_ratio"],
-        "bootstrap_mean": float(boot_vals.mean()) if not boot_vals.empty else np.nan,
-        "bootstrap_p05": reported_dynamic_share(boot_vals.quantile(0.05)) if not boot_vals.empty else np.nan,
-        "bootstrap_p50": reported_dynamic_share(boot_vals.quantile(0.50)) if not boot_vals.empty else np.nan,
-        "bootstrap_p95": reported_dynamic_share(boot_vals.quantile(0.95)) if not boot_vals.empty else np.nan,
-        "moving_block_bootstrap_mean": float(block_vals.mean()) if not block_vals.empty else np.nan,
-        "moving_block_bootstrap_p05": reported_dynamic_share(block_vals.quantile(0.05)) if not block_vals.empty else np.nan,
-        "moving_block_bootstrap_p50": reported_dynamic_share(block_vals.quantile(0.50)) if not block_vals.empty else np.nan,
-        "moving_block_bootstrap_p95": reported_dynamic_share(block_vals.quantile(0.95)) if not block_vals.empty else np.nan,
         **gradient,
-        **sub_ci,
         "network_weight_sum": float(sizes.sum()),
         "network_denominator_variance": float(observed["aggregate_variance"]),
         "notes": (
@@ -623,24 +452,13 @@ def main() -> None:
     parser.add_argument("--M", type=int, default=10,
                         help="LPT groups; default 10.")
     parser.add_argument("--bootstrap-b", type=int, default=ANALYSIS_BOOTSTRAP_DRAWS)
-    parser.add_argument("--block-bootstrap-b", type=int, default=ANALYSIS_BOOTSTRAP_DRAWS)
-    parser.add_argument("--subsample-n", type=int, default=300)
-    parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--seed", type=int, default=20260701)
     parser.add_argument("--solver", default="auto")
-    parser.add_argument(
-        "--run-profile",
-        choices=["medium", "full"],
-        default="full",
-        help="medium skips subsampling; full runs all standard diagnostics.",
-    )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     args = parser.parse_args()
 
-    if args.M is not None and args.M <= 0:
+    if args.M <= 0:
         raise ValueError("M must be positive.")
-    if args.run_profile == "medium":
-        args.subsample_n = 0
 
     solver = choose_solver(args.solver)
     panel = load_foerster_epsilon_panel(args.epsilon_csv, args.weights_csv, args.columns_csv, args.M)
@@ -653,20 +471,14 @@ def main() -> None:
     network_sizes = pd.Series(np.sqrt(np.maximum(np.diag(network_v), 0.0)), index=panel.y.index)
     network_summary = run_network_exposure_panel(
         panel=panel,
-        original_weight_sizes=panel.sizes,
         network_sizes=network_sizes,
         network_v=network_v,
         m=args.M,
         block_length=block_length,
         bootstrap_b=args.bootstrap_b,
-        block_bootstrap_b=args.block_bootstrap_b,
-        subsample_n=args.subsample_n,
         solver=solver,
-        rng=make_panel_rng(args.seed, f"{panel.name}_network"),
         gradient_rng=make_panel_rng(args.seed, f"{panel.name}_network_gradient"),
         out_root=args.out_dir,
-        progress_every=args.progress_every,
-        run_profile=args.run_profile,
     )
 
     display = pd.DataFrame([network_summary])
@@ -677,11 +489,9 @@ def main() -> None:
         "M",
         "HHI",
         "mgp_share",
-        "bootstrap_p95",
-        "moving_block_bootstrap_p95",
-        "subsample_p95",
+        "moving_block_gradient_bootstrap_p05",
+        "moving_block_gradient_bootstrap_p95",
     ]
-    cols = [col for col in cols if col in display.columns]
     print("\nFoerster epsilon summary:", flush=True)
     print(display[cols].round(6).to_string(index=False), flush=True)
 

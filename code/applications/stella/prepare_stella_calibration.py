@@ -31,6 +31,7 @@ import pandas as pd
 
 from mgp_core import ROOT
 from project_paths import upstream
+from applications.stella.paths import CALIBRATION
 from applications.stella.stella_provenance import archive_existing, file_fingerprints
 
 
@@ -39,10 +40,7 @@ BEA = PUBLIC / "bea_1997_summary"
 OFFICIAL = upstream("stella2015")
 OFFICIAL_IO = OFFICIAL / "filtering/data/matrix_io_input.csv"
 OFFICIAL_SURPLUS = OFFICIAL / "filtering/data/valadd_IIcalibration.csv"
-OUT = ROOT / "code/.cache/firm_networks/stella_reconstructed"
-BASELINE_OUT = OUT.with_name("stella_literal")
-LEGACY_SELECTION_ADF = OUT / "selection_adf_pvalues.csv"
-SELECTION_ADF = BASELINE_OUT / "selection_adf_pvalues_sax12.csv"
+SELECTION_ADF = CALIBRATION / "selection_adf_pvalues_sax12.csv"
 FUNDAFILE = wrds_path("compustat_annual")
 MATCHES = ROOT / "code/.cache/firm_networks/customer_name_matches.parquet"
 MANUAL_ALIASES = ROOT / "data/stella2015/manual_customer_aliases.csv"
@@ -71,8 +69,8 @@ def load_quarterly() -> pd.DataFrame:
     return d
 
 
-def released_screen_panel(d: pd.DataFrame, *, strict_lag_ranks: bool = True) -> tuple[pd.DataFrame, int]:
-    """Reproduce Stella's pre-X-12 consecutive-history/top-500-union screen."""
+def screen_history(d: pd.DataFrame) -> pd.DataFrame:
+    """Keep positive, consecutive firm histories for the released screen."""
     x = d.loc[d["quarter"].between(pd.Period("1962Q1"), pd.Period("2011Q4"))].copy()
     has_nonpositive = x["saleq"].le(0).groupby(x["gvkey"]).max()
     x = x.loc[~x["gvkey"].isin(has_nonpositive[has_nonpositive].index) & x["saleq"].notna()]
@@ -82,21 +80,32 @@ def released_screen_panel(d: pd.DataFrame, *, strict_lag_ranks: bool = True) -> 
         lambda q: max((b.ordinal - a.ordinal for a, b in zip(q.iloc[:-1], q.iloc[1:])), default=1)
     )
     x = x.loc[x["gvkey"].isin(gap[gap <= 1].index)].copy()
-    tenure = x.groupby("gvkey").size()
     x["lag_sale"] = x.groupby("gvkey")["saleq"].shift()
-    selected: set[str] = set()
-    for _, quarter_data in x.groupby("quarter"):
+    return x
+
+
+def top500_membership(history: pd.DataFrame) -> pd.DataFrame:
+    """Dated membership before taking the union and applying the ADF screen."""
+    tenure = history.groupby("gvkey").size()
+    rows = []
+    for quarter, quarter_data in history.groupby("quarter"):
         n_at_date = len(quarter_data)
         eligible = quarter_data.loc[quarter_data["gvkey"].map(tenure).ge(41)]
         if n_at_date > 500:
             # egen rank() in the released Stata file leaves missing lagged
             # sales unranked. pandas nlargest otherwise fills spare slots
             # with NaNs, adding firms that never pass the actual screen.
-            if strict_lag_ranks:
-                eligible = eligible.loc[eligible["lag_sale"].notna()]
+            eligible = eligible.loc[eligible["lag_sale"].notna()]
             eligible = eligible.nlargest(500, "lag_sale")
-        selected.update(eligible["gvkey"])
-    return x.loc[x["gvkey"].isin(selected)].copy(), len(selected)
+        rows.extend({"gvkey": gvkey, "quarter": quarter, "top500": 1} for gvkey in eligible["gvkey"])
+    return pd.DataFrame(rows)
+
+
+def released_screen_panel(d: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Reproduce Stella's pre-X-12 consecutive-history/top-500-union screen."""
+    history = screen_history(d)
+    selected = set(top500_membership(history)["gvkey"])
+    return history.loc[history["gvkey"].isin(selected)].copy(), len(selected)
 
 
 def released_screen_candidates(d: pd.DataFrame, adf_path: Path = SELECTION_ADF) -> tuple[pd.DataFrame, dict]:
@@ -114,8 +123,9 @@ def released_screen_candidates(d: pd.DataFrame, adf_path: Path = SELECTION_ADF) 
             f"Missing {adf_path}; run audit_stella_selection_adf.py first."
         )
     provenance_path = adf_path.with_suffix(".provenance.json")
-    if provenance_path.exists():
-        verify_input_provenance(json.loads(provenance_path.read_text()))
+    provenance = json.loads(provenance_path.read_text()) if provenance_path.exists() else {}
+    if provenance:
+        verify_input_provenance(provenance)
     adf = pd.read_csv(adf_path, dtype={"gvkey": str})
     adf["gvkey"] = normalize_gvkey(adf["gvkey"])
     selected = set(x["gvkey"])
@@ -141,49 +151,32 @@ def released_screen_candidates(d: pd.DataFrame, adf_path: Path = SELECTION_ADF) 
         "current_vintage_top500_union_after_adf": int(x["gvkey"].nunique()),
         "selection_adf_threshold": 0.01,
         "selection_adf_cache": str(adf_path),
-        "selection_adf_specification": f"{json.loads(provenance_path.read_text()).get('seasonal_adjustment_engine', 'unknown')}-adjusted real q/q log {REVENUE_FIELD} growth; no augmentation lags; intercept; MacKinnon p-value",
+        "selection_adf_specification": f"{provenance.get('seasonal_adjustment_engine', 'unknown')}-adjusted real q/q log {REVENUE_FIELD} growth; no augmentation lags; intercept; MacKinnon p-value",
         "selection_adf_max_pvalue": float(adf["pvalue"].max()),
         "selection_x13_or_adf_failures_unclassified_and_retained": int(adf["status"].ne("ok").sum()),
     }
 
 
-def firm_universe(d: pd.DataFrame, sample_mode: str = "literal", adf_path: Path = SELECTION_ADF) -> tuple[pd.DataFrame, pd.Series, pd.Series, dict]:
-    sample = d.loc[d["quarter"].isin(QUARTERS) & d["saleq"].gt(0)].copy()
-    wide = (
-        sample.pivot_table(index="gvkey", columns="quarter", values="saleq", aggfunc="mean")
-        .reindex(columns=QUARTERS)
-        .dropna()
-    )
+def firm_universe(d: pd.DataFrame, adf_path: Path = SELECTION_ADF) -> tuple[pd.DataFrame, pd.Series, pd.Series, dict]:
     candidates, screen_diag = released_screen_candidates(d, adf_path)
-    # Keep every firm passing the reconstructed source screens. The archive
-    # omits the original IDs and intermediate count; forcing its final N would
-    # introduce a selection rule absent from the source. Retain that earlier
-    # dimension-matched selection only as an explicit sensitivity.
-    if sample_mode == "legacy234":
-        ids = candidates.mean(axis=1).nlargest(234).index
-        selection_note = "Dimension-matching proxy: 234 largest mean-saleq firms within current-vintage candidates surviving the reconstructed top-500-union, ADF, and balance screens; the paper's exact IDs and intermediate count are unavailable"
-    elif sample_mode == "literal":
-        ids = candidates.index
-        selection_note = "All current-vintage firms surviving the reconstructed top-500-union, ADF, and balance screens; no artificial truncation to the paper's final N=234"
-    else:
-        raise ValueError(f"Unknown sample mode: {sample_mode}")
+    # Keep every firm passing the source screens; the deposit omits its IDs,
+    # so forcing its final N=234 would introduce an unsupported selection rule.
+    ids = candidates.index
+    sample = d.loc[d["quarter"].isin(QUARTERS) & d["saleq"].gt(0) & d["gvkey"].isin(ids)]
 
     def modal(values: pd.Series) -> float:
         clean = values.dropna()
         return clean.mode().iloc[0] if not clean.empty else np.nan
 
-    sic = sample.loc[sample["gvkey"].isin(ids)].groupby("gvkey")["sic"].agg(modal).reindex(ids)
-    naics = sample.loc[sample["gvkey"].isin(ids)].groupby("gvkey")["naics"].agg(modal).reindex(ids)
-    old_dimension_only_ids = wide.mean(axis=1).nlargest(234).index
+    sic = sample.groupby("gvkey")["sic"].agg(modal).reindex(ids)
+    naics = sample.groupby("gvkey")["naics"].agg(modal).reindex(ids)
     diagnostics = {
-        "current_vintage_fully_balanced_positive_1970_2011": int(len(wide)),
         **screen_diag,
         "current_vintage_balanced_before_mapping_or_sector_employment_screen": int(len(candidates)),
-        "overlap_with_previous_234_largest_of_all_balanced_rule": int(len(ids.intersection(old_dimension_only_ids))),
-        "sample_mode": sample_mode,
-        "reconstruction_selection": selection_note,
+        "sample_mode": "literal",
+        "reconstruction_selection": "All current-vintage firms surviving the reconstructed top-500-union, ADF, and balance screens; no artificial truncation to the paper's final N=234",
     }
-    return candidates.loc[ids], sic, naics, diagnostics
+    return candidates, sic, naics, diagnostics
 
 
 def census_sic_to_naics() -> dict[str, list[str]]:
@@ -453,108 +446,36 @@ def resolve_edges(usable: pd.Index) -> tuple[pd.DataFrame, dict]:
     }
 
 
-def current_vintage_selection_audit(
-    d: pd.DataFrame,
-    sic_map: dict[str, list[str]],
-    naics_map: dict[str, str],
-    output_dir: Path = OUT,
-    adf_path: Path = SELECTION_ADF,
-) -> dict:
-    """Apply the released top-500/balance screens to the current vintage."""
-    balanced, screen_diag = released_screen_candidates(d, adf_path)
-    ids = set(balanced.index)
-    literal_ids = pd.Index(sorted(ids))
-    source = d.loc[d["gvkey"].isin(literal_ids) & d["quarter"].isin(QUARTERS)]
-
-    def modal(values: pd.Series) -> float:
-        clean = values.dropna()
-        return clean.mode().iloc[0] if not clean.empty else np.nan
-
-    literal_sic = source.groupby("gvkey")["sic"].agg(modal).reindex(literal_ids)
-    literal_naics = source.groupby("gvkey")["naics"].agg(modal).reindex(literal_ids)
-    literal_mapping, _, _, _ = map_firms(
-        literal_ids, literal_sic, literal_naics, sic_map, naics_map
-    )
-    literal_emp = average_employment(literal_ids)
-    selected_panel, _ = released_screen_panel(d)
-    selected_panel = selected_panel.loc[selected_panel["quarter"].isin(QUARTERS)].copy()
+def selection_coverage(d: pd.DataFrame, target_ids: pd.Index, adf_path: Path) -> dict:
+    """Sales coverage of the calibrated firms within the unbalanced sample."""
+    selected, _ = released_screen_panel(d)
+    selected = selected.loc[selected["quarter"].isin(QUARTERS)]
     adf = pd.read_csv(adf_path, dtype={"gvkey": str})
     adf["gvkey"] = normalize_gvkey(adf["gvkey"])
     rejected = set(adf.loc[adf["pvalue"].gt(0.01), "gvkey"])
-    pre_adf_total_sales = selected_panel.groupby("quarter")["saleq"].sum().reindex(QUARTERS)
-    selected_panel = selected_panel.loc[~selected_panel["gvkey"].isin(rejected)]
-    total_sales = selected_panel.groupby("quarter")["saleq"].sum().reindex(QUARTERS)
-    target_ids = set(pd.read_csv(output_dir / "firm_mapping.csv", dtype={"gvkey": str})["gvkey"].map(lambda x: str(x).zfill(6)))
+    selected = selected.loc[~selected["gvkey"].isin(rejected)]
+    total_sales = selected.groupby("quarter")["saleq"].sum().reindex(QUARTERS)
     target_sales = (
-        selected_panel.loc[selected_panel["gvkey"].isin(target_ids)]
+        selected.loc[selected["gvkey"].isin(target_ids)]
         .groupby("quarter")["saleq"].sum().reindex(QUARTERS)
     )
     coverage = target_sales / total_sales
-    coverage_pre_adf = target_sales / pre_adf_total_sales
-    candidate_sales = (
-        selected_panel.loc[selected_panel["gvkey"].isin(ids)]
-        .pivot_table(index="gvkey", columns="quarter", values="saleq", aggfunc="mean")
-        .reindex(index=literal_ids, columns=QUARTERS)
-    )
-    all_candidate_coverage = candidate_sales.sum(axis=0) / total_sales
-    legacy_ids = balanced.mean(axis=1).nlargest(234).index
-    legacy_sales = candidate_sales.loc[legacy_ids].sum(axis=0)
-    legacy_coverage = legacy_sales / total_sales
-    legacy_coverage_pre_adf = legacy_sales / pre_adf_total_sales
-    smallest_ids = balanced.mean(axis=1).nsmallest(234).index
-    smallest_coverage = candidate_sales.loc[smallest_ids].sum(axis=0) / total_sales
-    rng = np.random.default_rng(2015)
-    values = candidate_sales.to_numpy(float)
-    denominator = total_sales.to_numpy(float)
-    random_coverage = np.empty(10_000)
-    for draw in range(len(random_coverage)):
-        chosen = rng.choice(len(values), size=234, replace=False)
-        random_coverage[draw] = np.mean(values[chosen].sum(axis=0) / denominator)
-    pd.Series(sorted(ids), name="gvkey").to_csv(output_dir / "literal_current_vintage_balanced_ids.csv", index=False)
     return {
-        "paper_unbalanced_unique_firms": 1610,
-        "released_do_file_unbalanced_tid_loop_upper_bound": 1613,
-        **screen_diag,
-        "paper_balanced_final_firms": 234,
-        "current_vintage_balanced_before_mapping_or_sector_employment_screen": int(len(ids)),
-        "current_vintage_balanced_with_manual_public_sector_mapping": int(len(ids & set(literal_mapping))),
-        "current_vintage_balanced_with_positive_annual_firm_employment": int(len(ids & set(literal_emp.index))),
         "current_vintage_selected_firms": len(target_ids),
         "current_vintage_selected_mean_share_of_unbalanced_sales": float(coverage.mean()),
-        "current_vintage_selected_mean_share_of_pre_adf_top500_union_sales": float(coverage_pre_adf.mean()),
         "current_vintage_selected_min_share_of_unbalanced_sales": float(coverage.min()),
         "current_vintage_selected_max_share_of_unbalanced_sales": float(coverage.max()),
-        "current_vintage_all_candidates_mean_share_of_unbalanced_sales": float(all_candidate_coverage.mean()),
-        "current_vintage_reconstructed_234_mean_share_of_unbalanced_sales": float(legacy_coverage.mean()),
-        "current_vintage_reconstructed_234_mean_share_of_pre_adf_top500_union_sales": float(legacy_coverage_pre_adf.mean()),
-        "current_vintage_smallest_234_of_candidates_mean_share_of_unbalanced_sales": float(smallest_coverage.mean()),
-        "current_vintage_random_234_of_candidates_sales_share_draws": 10000,
-        "current_vintage_random_234_of_candidates_sales_share_mean": float(random_coverage.mean()),
-        "current_vintage_random_234_of_candidates_sales_share_p95": float(np.quantile(random_coverage, 0.95)),
-        "current_vintage_random_234_of_candidates_sales_share_p99": float(np.quantile(random_coverage, 0.99)),
-        "current_vintage_reconstructed_234_min_share_of_unbalanced_sales": float(legacy_coverage.min()),
-        "current_vintage_reconstructed_234_max_share_of_unbalanced_sales": float(legacy_coverage.max()),
-        "screen_timing_note": f"The paper does not report its corresponding pre-concordance/pre-employment count. The {len(ids)}-versus-234 difference can reflect Compustat vintage, seasonal-adjustment build, firm/sector concordances, annual employment, or BLS coverage; it cannot be assigned to any one screen.",
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sample", choices=["legacy234", "literal"], default="literal")
-    parser.add_argument("--output-dir", type=Path, default=None)
-    parser.add_argument("--checks-output", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=CALIBRATION)
     parser.add_argument("--selection-adf", type=Path, default=SELECTION_ADF)
-    parser.add_argument("--employment-source", choices=["public_scope", "strict_concordance", "mean_firm"], default="public_scope",
-                        help="source year-matched public BLS ratios, strict identified-only denominators, or archived mean-firm approximation")
     args = parser.parse_args()
-    output_dir = args.output_dir or (
-        BASELINE_OUT if (args.sample, args.employment_source) == ("literal", "public_scope")
-        else BASELINE_OUT.with_name(f"stella_{args.sample}_{args.employment_source}"))
-    checks_output = args.checks_output or ROOT / "output" / (
-        "stella_reconstruction_sanity_checks.csv" if (args.sample, args.employment_source) == ("literal", "public_scope")
-        else f"stella_{args.sample}_{args.employment_source}_reconstruction_sanity_checks.csv")
+    output_dir = args.output_dir
     quarterly = load_quarterly()
-    levels, sic, current_naics, sample_diag = firm_universe(quarterly, args.sample, args.selection_adf)
+    levels, sic, current_naics, sample_diag = firm_universe(quarterly, args.selection_adf)
     ids = levels.index
     sic_map = census_sic_to_naics()
     naics_map, public_io, public_output, public_surplus = public_bea_summary()
@@ -565,20 +486,14 @@ def main() -> None:
     firm_sid, firm_bea, firm_naics97, manual_used = map_firms(ids, sic, current_naics, sic_map, naics_map)
     emp = average_employment(ids)
     usable = pd.Index([gvkey for gvkey in ids if gvkey in firm_sid and gvkey in emp.index])
-    employment_diagnostics = {"employment_source": "mean_firm", "note": "Archived whole-1970--2011 mean-firm employment approximation; no BLS denominator"}
-    ratio_emp = emp.copy()
-    employment_files = []
-    employment_ratios = None
-    if args.employment_source != "mean_firm":
-        from applications.stella.prepare_stella_employment import SECTORAL, reconstruct_employment_ratios
-        employment_ratios, employment_diagnostics = reconstruct_employment_ratios(
-            pd.DataFrame({"gvkey": usable, "stella_sid": [str(firm_sid[g]) for g in usable]}),
-            denominator_mode=args.employment_source)
-        employment_diagnostics["employment_source"] = args.employment_source
-        ratio_emp = employment_ratios["ratio_emp"]
-        usable = usable.intersection(ratio_emp.index[ratio_emp.gt(0)], sort=False)
-        emp = employment_ratios["mean_firm_emp"].reindex(usable)
-        employment_files = [SECTORAL]
+    from applications.stella.prepare_stella_employment import SECTORAL, reconstruct_employment_ratios
+    employment_ratios, employment_diagnostics = reconstruct_employment_ratios(
+        pd.DataFrame({"gvkey": usable, "stella_sid": [str(firm_sid[g]) for g in usable]}),
+        denominator_mode="public_scope")
+    employment_diagnostics["employment_source"] = "public_scope"
+    ratio_emp = employment_ratios["ratio_emp"]
+    usable = usable.intersection(ratio_emp.index[ratio_emp.gt(0)], sort=False)
+    emp = employment_ratios["mean_firm_emp"].reindex(usable)
     edges, match_diag = resolve_edges(usable)
 
     position = {gvkey: i for i, gvkey in enumerate(usable)}
@@ -603,24 +518,19 @@ def main() -> None:
     input_totals = gma.sum(axis=0)
     dense_shares = np.array([
         [official_io.loc[firm_sid[i], firm_sid[j]] / official_output[firm_sid[j]] * ratio_emp[i]
-         for j in usable] for i in usable]) if args.employment_source != "mean_firm" else None
+         for j in usable] for i in usable])
     output_dir.mkdir(parents=True, exist_ok=True)
     for previous in output_dir.glob("*.csv"):
         if not previous.name.startswith("selection_"):
             archive_existing(previous)
     archive_existing(output_dir / "diagnostics.json")
-    archive_existing(checks_output)
     # Exact solver inputs are headerless, as in Stella's MATLAB/GAUSS pipeline.
     np.savetxt(output_dir / "matrix_io.csv", np.where(gma == 0, SMALL, gma), delimiter=",", fmt="%.17g")
     np.savetxt(output_dir / "alpha.csv", alpha, delimiter=",", fmt="%.17g")
     capital = np.eye(len(usable))
     np.savetxt(output_dir / "matrix_capital.csv", np.where(capital == 0, SMALL, capital), delimiter=",", fmt="%.17g")
-    pd.DataFrame(gma, index=usable, columns=usable).to_csv(output_dir / "matrix_io_economic_labeled.csv")
-    if dense_shares is not None:
-        pd.DataFrame(dense_shares, index=usable, columns=usable).to_csv(output_dir / "matrix_io_dense_economic_labeled.csv")
-    if employment_ratios is not None:
-        employment_ratios.to_csv(output_dir / "firm_employment_ratios.csv")
-        (output_dir / "employment_diagnostics.json").write_text(json.dumps(employment_diagnostics, indent=2) + "\n")
+    pd.DataFrame(dense_shares, index=usable, columns=usable).to_csv(output_dir / "matrix_io_dense_economic_labeled.csv")
+    employment_ratios.to_csv(output_dir / "firm_employment_ratios.csv")
     pd.DataFrame({
         "gvkey": usable,
         "sic": sic.reindex(usable).values,
@@ -633,7 +543,7 @@ def main() -> None:
     }).to_csv(output_dir / "firm_mapping.csv", index=False)
     levels.loc[usable].to_csv(output_dir / "nominal_saleq_levels.csv")
 
-    selection_diag = current_vintage_selection_audit(quarterly, sic_map, naics_map, output_dir, args.selection_adf)
+    selection_diag = selection_coverage(quarterly, usable, args.selection_adf)
     diagnostics = {
         **sample_diag,
         **selection_diag,
@@ -645,7 +555,7 @@ def main() -> None:
         "mapped_with_employment": len(usable),
         "candidate_firms_dropped_without_sector_mapping": len(set(ids) - set(firm_sid)),
         "candidate_firms_dropped_without_positive_employment": len(set(ids) - set(emp.index)),
-        "candidate_firms_dropped_without_joint_sector_employment": len(set(employment_ratios.index) - set(usable)) if employment_ratios is not None else None,
+        "candidate_firms_dropped_without_joint_sector_employment": len(set(employment_ratios.index) - set(usable)),
         "manual_firm_sector_mappings": sorted(manual_used),
         "io_sectors_used": len(set(firm_sid[g] for g in usable)),
         "observed_binary_edges": len(edges),
@@ -660,37 +570,20 @@ def main() -> None:
         "dense_firms_with_suppliers": int((dense.sum(axis=0) > 0).sum()),
         "dense_median_suppliers": float(np.median(dense.sum(axis=0))),
         "dense_min_suppliers": int(dense.sum(axis=0).min()),
-        "dense_mean_total_input_share": float(dense_shares.sum(axis=0).mean()) if dense_shares is not None else None,
-        "dense_median_total_input_share": float(np.median(dense_shares.sum(axis=0))) if dense_shares is not None else None,
-        "dense_max_total_input_share": float(dense_shares.sum(axis=0).max()) if dense_shares is not None else None,
+        "dense_mean_total_input_share": float(dense_shares.sum(axis=0).mean()),
+        "dense_median_total_input_share": float(np.median(dense_shares.sum(axis=0))),
+        "dense_max_total_input_share": float(dense_shares.sum(axis=0).max()),
         "employment_diagnostics": employment_diagnostics,
         "calibration": "Literal matrix_construction_IIcalibration.m with deposited BEA accounts: binary Historical Segments links and within-sector employment allocation.",
-        "employment_approximation": ("Source joint-year mean firm/sector employment ratios reconstructed from public BLS national QCEW and a CES railroad supplement. Historical classification scope proxies are declared separately; original unpublished BLS series/vintage are not identified. The source's three within-sample sector overrides are retained exactly."
-                                     if employment_ratios is not None else employment_diagnostics["note"]),
-        "remaining_input_gap": "The released archive omits the exact 234 gvkeys and generated concordances. " + (
-            "The sample is a dimension-matched current-vintage reconstruction, not an exact sample rerun."
-            if args.sample == "legacy234" else "This sample applies the reconstructed screens without forcing the published final count; historical vintage, seasonal-adjustment build, BLS coverage and concordance gaps remain."),
+        "employment_approximation": "Source joint-year mean firm/sector employment ratios reconstructed from public BLS national QCEW and a CES railroad supplement. Historical classification scope proxies are declared separately; original unpublished BLS series/vintage are not identified. The source's three within-sample sector overrides are retained exactly.",
+        "remaining_input_gap": "The released archive omits the exact 234 gvkeys and generated concordances. This sample applies the reconstructed screens without forcing the published final count; historical vintage, seasonal-adjustment build, BLS coverage and concordance gaps remain.",
         "input_file_fingerprints": file_fingerprints(
             [QFILE, FUNDAFILE, MATCHES, MANUAL_ALIASES, MANUAL_SECTORS,
-             SID_CROSSWALK, args.selection_adf, OFFICIAL_IO, OFFICIAL_SURPLUS] + employment_files
+             SID_CROSSWALK, args.selection_adf, OFFICIAL_IO, OFFICIAL_SURPLUS, SECTORAL]
             + sorted(PUBLIC.glob("*.xls")) + sorted(BEA.glob("*.xls")), ROOT),
     }
     (output_dir / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2) + "\n")
 
-    checks = pd.DataFrame([
-        ("Balanced firms", 234, len(usable), "count", "Dimension-matched identities reconstructed" if args.sample == "legacy234" else "Literal reconstructed screens; published count not imposed"),
-        ("Baseline firms with an in-sample client", 58, diagnostics["baseline_firms_with_clients"], "count", "Paper does not specify whether 58 is counted before or after zero BEA cells are removed; this row counts binary matched links"),
-        ("Baseline firms with a positive calibrated client share", 58, diagnostics["baseline_firms_with_clients_positive_calibrated_share"], "count", "Alternative interpretation of the same published 58; not a second independent target"),
-        ("Baseline mean total input share", 0.02, diagnostics["baseline_mean_total_input_share"], "share", "Paper reports approximately 0.02"),
-        ("Baseline median total input share", 0.0, diagnostics["baseline_median_total_input_share"], "share", "Paper reports close to zero"),
-        ("Dense firms with a counterparty", 234, diagnostics["dense_firms_with_suppliers"], "count", "Positive sector-use counterparties"),
-        ("Dense median counterparties", 215, diagnostics["dense_median_suppliers"], "count", "Constructor column degree counts suppliers; paper's client label requires direction qualification"),
-        ("Dense minimum counterparties", 190, diagnostics["dense_min_suppliers"], "count", "Constructor column degree counts suppliers; paper's client label requires direction qualification"),
-        ("Dense mean total input share", 0.09, diagnostics["dense_mean_total_input_share"], "share", "Public BLS reconstruction; original series and vintage unavailable"),
-        ("Dense median total input share", 0.06, diagnostics["dense_median_total_input_share"], "share", "Public BLS reconstruction; original series and vintage unavailable"),
-    ], columns=["diagnostic", "stella_2015", "reconstruction", "units", "comparison_note"])
-    checks_output.parent.mkdir(parents=True, exist_ok=True)
-    checks.to_csv(checks_output, index=False)
     print(json.dumps(diagnostics, indent=2))
 
 

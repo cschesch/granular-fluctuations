@@ -1,12 +1,10 @@
 """Recreate the authors' seeded MATLAB model-size population in the cache."""
 
 import argparse
-import os
 from pathlib import Path
-import shutil
 import subprocess
 
-from project_paths import CODE_DIR, DERIVED_CACHE, ROOT, upstream
+from project_paths import CODE_DIR, DERIVED_CACHE, ROOT, upstream, find_program, matlab_string
 
 
 DESTINATION = DERIVED_CACHE / "herskovic2020/calibrated_sizes_matlab_seed100.mat"
@@ -15,16 +13,12 @@ DESTINATION = DERIVED_CACHE / "herskovic2020/calibrated_sizes_matlab_seed100.mat
 def prepare() -> Path:
     if DESTINATION.is_file():
         return DESTINATION
-    matlab = os.environ.get("MATLAB") or shutil.which("matlab")
-    if matlab is None:
-        installed = sorted(Path("/Applications").glob("MATLAB_*.app/bin/matlab"), reverse=True)
-        matlab = str(installed[0]) if installed else None
+    matlab = find_program("matlab")
     if matlab is None:
         raise FileNotFoundError("MATLAB is required to regenerate the Herskovic model-size draw")
-    quote = lambda path: str(path).replace("'", "''")
     expression = (
-        f"addpath('{quote(CODE_DIR)}'); "
-        f"export_herskovic_calibrated_sizes('{quote(ROOT)}','{quote(upstream('herskovic2020'))}')"
+        f"addpath('{matlab_string(CODE_DIR)}'); "
+        f"export_herskovic_calibrated_sizes('{matlab_string(ROOT)}','{matlab_string(upstream('herskovic2020'))}')"
     )
     subprocess.run([matlab, "-batch", expression], cwd=CODE_DIR, check=True)
     return DESTINATION

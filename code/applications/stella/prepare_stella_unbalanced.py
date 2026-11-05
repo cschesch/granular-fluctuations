@@ -15,35 +15,13 @@ import numpy as np
 import pandas as pd
 
 from mgp_core import ROOT
-from applications.stella.prepare_stella_calibration import load_quarterly, released_screen_panel
+from applications.stella.prepare_stella_calibration import load_quarterly, screen_history, top500_membership
+from applications.stella.paths import CALIBRATION, UNBALANCED
 from applications.panels import load_gdp_deflator
 from applications.stella.stella_provenance import archive_existing, file_fingerprints
 from applications.stella.stella_quarterly_inputs import input_description, verify_input_provenance
 
-DEFAULT_SOURCE = ROOT / "code/.cache/firm_networks/stella_literal"
-DEFAULT_OUT = DEFAULT_SOURCE.with_name("stella_unbalanced")
 LEVEL_PERIODS = pd.period_range("1962Q1", "2011Q4", freq="Q")
-
-
-def top500_membership(d: pd.DataFrame) -> pd.DataFrame:
-    """Recreate dated membership before the union and stationarity screens."""
-    x = d.loc[d["quarter"].isin(LEVEL_PERIODS)].copy()
-    nonpositive = x["saleq"].le(0).groupby(x["gvkey"]).max()
-    x = x.loc[~x["gvkey"].isin(nonpositive[nonpositive].index) & x["saleq"].notna()]
-    x = x.groupby(["gvkey", "quarter"], as_index=False)["saleq"].mean().sort_values(["gvkey", "quarter"])
-    gap = x.groupby("gvkey")["quarter"].apply(
-        lambda q: max((b.ordinal-a.ordinal for a, b in zip(q.iloc[:-1], q.iloc[1:])), default=1))
-    x = x.loc[x["gvkey"].isin(gap[gap <= 1].index)].copy()
-    tenure = x.groupby("gvkey").size()
-    x["lag_sale"] = x.groupby("gvkey")["saleq"].shift()
-    rows = []
-    for quarter, group in x.groupby("quarter"):
-        eligible = group.loc[group["gvkey"].map(tenure).ge(41)]
-        if len(group) > 500:
-            # Stata egen rank() leaves missing lag_sale unranked.
-            eligible = eligible.loc[eligible["lag_sale"].notna()].nlargest(500, "lag_sale")
-        rows.extend({"gvkey": gvkey, "quarter": quarter, "top500": 1} for gvkey in eligible["gvkey"])
-    return pd.DataFrame(rows)
 
 
 def build(source_dir: Path, output_dir: Path) -> dict:
@@ -58,11 +36,9 @@ def build(source_dir: Path, output_dir: Path) -> dict:
     adjusted = pd.read_parquet(adjusted_path)
     adjusted["quarter"] = pd.PeriodIndex(adjusted["quarter"], freq="Q")
     quarterly = load_quarterly()
-    legacy_selected, legacy_union_n = released_screen_panel(quarterly, strict_lag_ranks=False)
-    membership = top500_membership(quarterly)
+    membership = top500_membership(screen_history(quarterly))
     source_union = set(membership["gvkey"])
-    legacy_union = set(legacy_selected["gvkey"])
-    if not source_union.issubset(legacy_union) or not source_union.issubset(adf.index):
+    if not source_union.issubset(adf.index):
         raise ValueError("Source-faithful membership is not covered by adjustment/ADF histories")
     source_adf = adf.loc[sorted(source_union)]
     passed = source_adf.index[~source_adf["pvalue"].gt(.01)]
@@ -122,9 +98,7 @@ def build(source_dir: Path, output_dir: Path) -> dict:
         "input": str(adjusted_path), "adf_input": str(adf_path),
         "seasonal_specification": f"Published sax12 estimation options, Census {engine} executable",
         "seasonal_adjustment_engine": engine,
-        "legacy_top500_union_N": legacy_union_n,
         "pre_adf_top500_union_N": len(source_union), "after_source_spec_adf_N": len(passed),
-        "legacy_firms_excluded_by_source_missing_lag_rank_rule": sorted(legacy_union-source_union),
         "omitted_without_successful_adjusted_history": omitted, "N": len(available),
         "level_T": len(LEVEL_PERIODS), "growth_T": len(growth),
         "sample_growth": [str(growth.index[0]), str(growth.index[-1])],
@@ -145,8 +119,8 @@ def build(source_dir: Path, output_dir: Path) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--source-dir", type=Path, default=CALIBRATION)
+    parser.add_argument("--output-dir", type=Path, default=UNBALANCED)
     args = parser.parse_args()
     print(json.dumps(build(args.source_dir, args.output_dir), indent=2))
 

@@ -14,9 +14,9 @@ import numpy as np
 import pandas as pd
 
 from mgp_core import ROOT
-from applications.stella.prepare_stella_calibration import released_screen_panel
+from applications.stella.prepare_stella_calibration import released_screen_panel, screen_history, top500_membership
+from applications.stella.paths import CALIBRATION, UNBALANCED
 from applications.stella.prepare_stella_sales import locate_x13, parse_d11, x13_spec
-from applications.stella.prepare_stella_unbalanced import top500_membership
 from applications.stella.audit_stella_growth_moments import growth_accounting
 
 
@@ -29,10 +29,9 @@ def main() -> None:
         "saleq": np.repeat(np.arange(1, 502), len(dates)),
     })
     strict, strict_n = released_screen_panel(synthetic)
-    legacy, legacy_n = released_screen_panel(synthetic, strict_lag_ranks=False)
-    assert strict_n == 500 and legacy_n == 501
-    assert "000001" not in set(strict["gvkey"]) and "000001" in set(legacy["gvkey"])
-    membership = top500_membership(synthetic)
+    assert strict_n == 500
+    assert "000001" not in set(strict["gvkey"])
+    membership = top500_membership(screen_history(synthetic))
     assert set(membership["gvkey"]) == set(strict["gvkey"])
     assert dates[0] not in set(membership["quarter"])
     account = growth_accounting(pd.DataFrame([[100., 110., np.nan], [np.nan, 20., 25.],
@@ -64,13 +63,12 @@ def main() -> None:
 
     # Private balanced and unbalanced preparations must share the same adjusted
     # levels, while demeaning growth over different estimation windows.
-    base = ROOT / "code/.cache/firm_networks"
-    level = pd.read_csv(base / "stella_literal/nominal_saleq_sax12_adjusted.csv", index_col=0)
-    full = pd.read_csv(base / "stella_unbalanced/nominal_saleq_sax12_adjusted.csv", index_col=0)
+    level = pd.read_csv(CALIBRATION / "nominal_saleq_sax12_adjusted.csv", index_col=0)
+    full = pd.read_csv(UNBALANCED / "nominal_saleq_sax12_adjusted.csv", index_col=0)
     np.testing.assert_allclose(full.loc[level.index, level.columns], level, rtol=0, atol=1e-9)
-    y = pd.read_csv(base / "stella_unbalanced/sales_growth_sax12.csv", index_col=0)
-    index = pd.read_csv(base / "stella_unbalanced/top500_index.csv", index_col=0)
-    unbalanced = json.loads((base / "stella_unbalanced/diagnostics.json").read_text())
+    y = pd.read_csv(UNBALANCED / "sales_growth_sax12.csv", index_col=0)
+    index = pd.read_csv(UNBALANCED / "top500_index.csv", index_col=0)
+    unbalanced = json.loads((UNBALANCED / "diagnostics.json").read_text())
     assert y.shape == (199, unbalanced["N"]) and index.shape == (unbalanced["N"], 199)
     assert y.index[0] == "1962Q2" and y.index[-1] == "2011Q4"
     assert index.isin([0, 1]).all().all() and index.sum(axis=0).max() <= 500

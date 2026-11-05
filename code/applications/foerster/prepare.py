@@ -9,13 +9,11 @@ The existing Octave/Sims solver implements Models_98.gss and Resolkw_98.gss.
 from pathlib import Path
 import hashlib
 import json
-import os
-import shutil
 
 import numpy as np
 import pandas as pd
 
-from project_paths import CODE_DIR, DERIVED_CACHE, upstream
+from project_paths import CODE_DIR, DERIVED_CACHE, upstream, find_program
 
 
 CACHE = DERIVED_CACHE / "foerster2011"
@@ -75,9 +73,7 @@ def prepare() -> bool:
     if not (source / "Data/IP98.xls").is_file():
         print("[skip] Foerster preparation: original publication archive is absent", flush=True)
         return False
-    octave = os.environ.get("OCTAVE") or shutil.which("octave")
-    if octave is None and Path("/usr/local/bin/octave").is_file():
-        octave = "/usr/local/bin/octave"
+    octave = find_program("octave")
     if octave is None:
         print("[skip] Foerster preparation: Octave is required to solve the deposited model", flush=True)
         return False

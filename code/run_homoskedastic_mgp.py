@@ -28,6 +28,7 @@ from near_optimal import delta_rate
 from compute_applications_coefficients import CACHE, clean_panel_moments, summary_path, available_items
 from applications.figure_layout import HIERARCHY, hierarchy_positions, tick_labels
 from applications.registry import panel_loaders, innovation_loaders
+from applications.stella.paths import CALIBRATION
 # Imported after mgp_core, which points MPLCONFIGDIR at a writable cache.
 import matplotlib
 matplotlib.use("Agg")
@@ -181,8 +182,8 @@ def network_rows(seed, available):
                                    eps=y.to_numpy(float).T, network_v=Vs, weight_scale=float(sizes.sum() ** 2))
 
     if "Stella (2015)" in available:
-        ids = stella.load_firm_ids(stella.PAPER_CALIBRATION)
-        _, full_shocks, _, _, V = stella.load_dynamic_panel(stella.PAPER_CALIBRATION, ids)
+        ids = stella.load_firm_ids(CALIBRATION)
+        _, full_shocks, _, _, V = stella.load_dynamic_panel(CALIBRATION, ids)
         shocks = full_shocks[2:]
         nsz = np.sqrt(np.maximum(np.diag(V), 0))
         ss = pd.read_pickle(summary_path("stella_revtq_firm_network")).iloc[0]

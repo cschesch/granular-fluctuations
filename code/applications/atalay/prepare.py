@@ -8,13 +8,12 @@ its SSC dependency without trying to install it again.
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 from zipfile import ZipFile
 
-from project_paths import CODE_DIR, ROOT
+from project_paths import CODE_DIR, ROOT, find_program, matlab_string
 
 
 ARCHIVE = ROOT / "data/atalay2017/replication_elasticities.zip"
@@ -23,18 +22,6 @@ DERIVED = CODE_DIR / ".cache/derived/atalay2017"
 WORK = DERIVED / "replication_package"
 DRIVERS = (CODE_DIR / "export_atalay_elasticity_profile.m", CODE_DIR / "export_atalay_elasticity_surface.m")
 STATA_FILES = ("dataKJ.csv", "dataMJ.csv", "dataOJ.csv", "ioJ_data_dt.csv")
-
-
-def executable(option, variable, names, mac_paths):
-    explicit = option or os.environ.get(variable)
-    if explicit:
-        return explicit if Path(explicit).is_file() else None
-    candidates = [*(shutil.which(name) for name in names), *mac_paths]
-    return next((str(path) for value in candidates if value and (path := Path(value)).is_file()), None)
-
-
-def matlab_string(path):
-    return str(path).replace("'", "''")
 
 
 def run_matlab(program, statements):
@@ -93,8 +80,8 @@ def main():
     parser.add_argument("--matlab")
     parser.add_argument("--stata")
     args = parser.parse_args()
-    matlab = executable(args.matlab, "MATLAB", ("matlab",), sorted(Path("/Applications").glob("MATLAB*.app/bin/matlab"), reverse=True))
-    stata = executable(args.stata, "STATA", ("stata-mp", "stata-se", "stata"), sorted(Path("/Applications").glob("Stata*/Stata*.app/Contents/MacOS/stata-*")))
+    matlab = find_program("matlab", args.matlab)
+    stata = find_program("stata", args.stata)
     if not ARCHIVE.is_file() or not matlab or not stata:
         message = "Atalay preprocessing requires its original ZIP, Stata with hprescott, and MATLAB with Statistics and Machine Learning Toolbox."
         if args.available_only:

@@ -22,7 +22,6 @@ import numpy as np
 import pandas as pd
 
 import gradient_bootstrap as GB
-from factor_rank import factor_rank_tests
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
@@ -335,14 +334,6 @@ def run_mgp(
             checkpoint_every=progress_every,
         )
 
-    try:
-        _, rank = factor_rank_tests(x_grouped, alpha=0.05, progress_label=prefix)
-        factor_lb_j = rank.get("factor_lb_J", np.nan)
-        regular_certified_j = bool(rank.get("regular_certified_J", False))
-    except Exception as exc:
-        print(f"[{prefix}] J-test skipped: {type(exc).__name__}: {exc}", flush=True)
-        factor_lb_j, regular_certified_j = np.nan, False
-
     weight_sum = float(influence.sum())
     mu = Calibration().gdp_multiplier_mu
     summary: dict[str, object] = {
@@ -379,8 +370,6 @@ def run_mgp(
         "normal_ucl95": float(observed["normal_ucl95"]),
         "ledermann_kbar": regularity["ledermann_kbar"],
         "common_rank": regularity["common_rank"],
-        "factor_lb_J": factor_lb_j,
-        "regular_certified_J": regular_certified_j,
         "regular": regularity["regular"],
         "rank_gap_ratio": regularity["rank_gap_ratio"],
         "gradient_bootstrap_p05": family.get("gradient_low", np.nan),

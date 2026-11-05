@@ -1,11 +1,38 @@
 """Shared locations for generated analysis data."""
 
 from pathlib import Path
+import os
+import shutil
 
 
 CODE_DIR = Path(__file__).resolve().parent
 ROOT = CODE_DIR.parent
 DERIVED_CACHE = CODE_DIR / ".cache" / "derived"
+
+
+def find_program(name: str, override: str | None = None) -> str | None:
+    """Find an explicit executable, its environment setting, or a local install."""
+    if configured := override or os.environ.get(name.upper()):
+        return shutil.which(configured)
+    names = ("stata-mp", "stata-se", "stata") if name == "stata" else (name,)
+    for candidate in names:
+        if path := shutil.which(candidate):
+            return path
+    patterns = {
+        "matlab": "/Applications/MATLAB*.app/bin/matlab",
+        "stata": "/Applications/Stata*/Stata*.app/Contents/MacOS/stata-*",
+        "octave": "/usr/local/bin/octave",
+    }
+    pattern = patterns.get(name)
+    if pattern:
+        for path in sorted(Path("/").glob(pattern.lstrip("/")), reverse=name == "matlab"):
+            if path.is_file() and os.access(path, os.X_OK):
+                return str(path)
+    return None
+
+
+def matlab_string(path: Path) -> str:
+    return str(path).replace("'", "''")
 
 
 def available(label: str, *paths: Path) -> bool:

@@ -15,7 +15,6 @@ import platform
 import shutil
 import subprocess
 import tarfile
-import urllib.request
 
 from project_paths import ROOT
 ARCHIVE = ROOT / "data/stella2015/public_inputs/omegav03src.tar.gz"
@@ -28,20 +27,13 @@ CHECKSUM_SOURCE = ("https://raw.githubusercontent.com/freebsd/freebsd-ports/"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--download", action="store_true")
     parser.add_argument("--compiler", default=shutil.which("gfortran"))
     parser.add_argument("--jobs", type=int, default=4)
     args = parser.parse_args()
     if not args.compiler:
         parser.error("GNU Fortran is required; pass --compiler.")
     if not ARCHIVE.exists():
-        if not args.download:
-            parser.error("Source archive absent; use --download.")
-        content = urllib.request.urlopen(URL, timeout=60).read()
-        if hashlib.sha256(content).hexdigest() != SHA256:
-            raise RuntimeError("Downloaded X-12 source checksum mismatch.")
-        ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
-        ARCHIVE.write_bytes(content)
+        parser.error(f"Missing bundled X-12 source archive: {ARCHIVE}")
     if hashlib.sha256(ARCHIVE.read_bytes()).hexdigest() != SHA256:
         raise RuntimeError("X-12 source archive checksum mismatch.")
     source = BUILD / "source"
@@ -96,8 +88,6 @@ def main() -> None:
         "build_parameters": (source / "build.prm").read_text(),
         "caveat": "Original Census X-12 v0.3; Stella's exact executable build is unknown."}
     (BUILD / "build_manifest.json").write_text(json.dumps(record, indent=2) + "\n")
-    public = dict(record)
-    (ROOT / "output/stella_x12_build.json").write_text(json.dumps(public, indent=2) + "\n")
     print(json.dumps(record, indent=2))
 
 

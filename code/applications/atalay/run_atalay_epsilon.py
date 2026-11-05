@@ -14,7 +14,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from factor_rank import factor_rank_tests
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
@@ -23,7 +22,6 @@ from mgp_core import (
     align_sizes_to_panel,
     build_lpt_grouped_data,
     choose_solver,
-    default_subsample_length,
     make_panel_rng,
     regularity_report,
     sample_cov,
@@ -32,8 +30,6 @@ from applications.foerster.run_foerster_epsilon import (
     cap_dynamic_share_report,
     network_gradient_family,
     network_observed_stats,
-    resample_network_mgp,
-    subsample_network_mgp,
 )
 from applications.panels import SourcePanel
 from run_multi_source import output_prefix
@@ -144,12 +140,8 @@ def run_atalay_panel(
     m: int,
     block_length: int,
     bootstrap_b: int,
-    block_bootstrap_b: int,
-    subsample_n: int,
     solver: str,
     seed: int,
-    progress_every: int,
-    run_profile: str,
 ) -> dict[str, object]:
     y, sizes = align_sizes_to_panel(panel.y, panel.sizes)
     order_pos = [int(str(idx).split("_")[-1]) - 1 for idx in y.index]
@@ -167,18 +159,6 @@ def run_atalay_panel(
     regularity = regularity_report(sigma_grouped, solver)
     hhi = float(np.sum(shares**2))
 
-    try:
-        _, rank_summary = factor_rank_tests(
-            x_grouped,
-            alpha=0.05,
-            progress_label=f"atalay_network_M{m}",
-        )
-        factor_lb_j = rank_summary.get("factor_lb_J", np.nan)
-        regular_certified_j = bool(rank_summary.get("regular_certified_J", False))
-    except Exception as exc:
-        print(f"[{panel.name}] J-test skipped: {type(exc).__name__}: {exc}", flush=True)
-        factor_lb_j, regular_certified_j = np.nan, False
-
     print(
         f"\n[{panel.name}] N={y.shape[0]}, T={y.shape[1]}, M={m}, "
         f"sample={panel.start_date}--{panel.last_date}, block={block_length}",
@@ -191,74 +171,23 @@ def run_atalay_panel(
         flush=True,
     )
 
-    rng = make_panel_rng(seed, panel.name)
-    gradient_rng = make_panel_rng(seed, f"{panel.name}_gradient")
-    bootstrap = resample_network_mgp(
-        x_grouped,
-        eps_obs,
-        network_v,
-        weight_scale,
-        b=bootstrap_b,
-        solver=solver,
-        rng=rng,
-        mode="bootstrap",
-        progress_every=progress_every,
-    )
-    block_bootstrap = resample_network_mgp(
-        x_grouped,
-        eps_obs,
-        network_v,
-        weight_scale,
-        b=block_bootstrap_b,
-        solver=solver,
-        rng=rng,
-        mode="moving_block_bootstrap",
-        progress_every=progress_every,
-        block_length=block_length,
-    )
     gradient = network_gradient_family(
         x_grouped,
         eps_obs,
         network_v,
         weight_scale,
-        b=min(bootstrap_b, block_bootstrap_b),
+        b=bootstrap_b,
         block_length=block_length,
-        rng=gradient_rng,
+        rng=make_panel_rng(seed, f"{panel.name}_gradient"),
         solver=solver,
     )
 
-    ell = default_subsample_length(y.shape[1], m)
-    if subsample_n > 0 and ell < y.shape[1]:
-        subsamples, sub_ci = subsample_network_mgp(
-            x_grouped,
-            eps_obs,
-            network_v,
-            weight_scale,
-            ell=ell,
-            n_sub=subsample_n,
-            solver=solver,
-            rng=rng,
-            progress_every=progress_every,
-            g_hat=float(observed["mgp_share_uncapped"]),
-        )
-    else:
-        subsamples, sub_ci = pd.DataFrame(), {}
-
     prefix = output_prefix(panel.name)
     RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
-    pd.concat([bootstrap, block_bootstrap], ignore_index=True).to_pickle(
-        RUN_OUTPUT_CACHE / f"{prefix}_draws_resampling.pkl"
-    )
-    if not subsamples.empty:
-        subsamples.to_pickle(RUN_OUTPUT_CACHE / f"{prefix}_draws_subsampling.pkl")
-
-    boot_vals = bootstrap["mgp_share_uncapped"] if not bootstrap.empty else pd.Series(dtype=float)
-    block_vals = block_bootstrap["mgp_share_uncapped"] if not block_bootstrap.empty else pd.Series(dtype=float)
     summary = {
         "dataset": panel.name,
         "table_column": f"Network exposure M={m}",
         "table_outcome": "network-propagated primitive-shock bound",
-        "run_profile": run_profile,
         "frequency": panel.frequency,
         "value_name": panel.value_name,
         "size_name": panel.size_name,
@@ -270,8 +199,6 @@ def run_atalay_panel(
         "T": y.shape[1],
         "M": m,
         "bootstrap_b": bootstrap_b,
-        "block_bootstrap_b": block_bootstrap_b,
-        "requested_subsample_n": subsample_n,
         "block_length": block_length,
         "coverage": panel.coverage,
         "HHI": hhi,
@@ -282,20 +209,9 @@ def run_atalay_panel(
         **{k: v for k, v in observed.items() if k not in {"solver", "status", "dual_min_eig", "dual_min_diag"}},
         "ledermann_kbar": regularity["ledermann_kbar"],
         "common_rank": regularity["common_rank"],
-        "factor_lb_J": factor_lb_j,
-        "regular_certified_J": regular_certified_j,
         "regular": regularity["regular"],
         "rank_gap_ratio": regularity["rank_gap_ratio"],
-        "bootstrap_mean": float(boot_vals.mean()) if not boot_vals.empty else np.nan,
-        "bootstrap_p05": float(boot_vals.quantile(0.05)) if not boot_vals.empty else np.nan,
-        "bootstrap_p50": float(boot_vals.quantile(0.50)) if not boot_vals.empty else np.nan,
-        "bootstrap_p95": float(boot_vals.quantile(0.95)) if not boot_vals.empty else np.nan,
-        "moving_block_bootstrap_mean": float(block_vals.mean()) if not block_vals.empty else np.nan,
-        "moving_block_bootstrap_p05": float(block_vals.quantile(0.05)) if not block_vals.empty else np.nan,
-        "moving_block_bootstrap_p50": float(block_vals.quantile(0.50)) if not block_vals.empty else np.nan,
-        "moving_block_bootstrap_p95": float(block_vals.quantile(0.95)) if not block_vals.empty else np.nan,
         **gradient,
-        **sub_ci,
         "network_weight_sum": float(sizes.sum()),
         "network_denominator_variance": float(observed["aggregate_variance"]),
         "notes": (
@@ -315,15 +231,9 @@ def main() -> None:
     parser.add_argument("--M", type=int, default=10,
                         help="LPT groups; default 10.")
     parser.add_argument("--bootstrap-b", type=int, default=ANALYSIS_BOOTSTRAP_DRAWS)
-    parser.add_argument("--block-bootstrap-b", type=int, default=ANALYSIS_BOOTSTRAP_DRAWS)
-    parser.add_argument("--subsample-n", type=int, default=300)
-    parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--seed", type=int, default=20260701)
     parser.add_argument("--solver", default="auto")
-    parser.add_argument("--run-profile", choices=["medium", "full"], default="full")
     args = parser.parse_args()
-    if args.run_profile == "medium":
-        args.subsample_n = 0
 
     solver = choose_solver(args.solver)
     panel, network_v = load_atalay_panel(args.shocks_csv, args.network_v_csv, args.M)
@@ -334,12 +244,8 @@ def main() -> None:
         m=args.M,
         block_length=block_length,
         bootstrap_b=args.bootstrap_b,
-        block_bootstrap_b=args.block_bootstrap_b,
-        subsample_n=args.subsample_n,
         solver=solver,
         seed=args.seed,
-        progress_every=args.progress_every,
-        run_profile=args.run_profile,
     )
     display = pd.DataFrame([summary])
     cols = [

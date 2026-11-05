@@ -14,8 +14,9 @@ import numpy as np
 import pandas as pd
 
 from mgp_core import ROOT
+from project_paths import find_program
 from applications.stella.prepare_stella_calibration import OFFICIAL, OFFICIAL_IO, OFFICIAL_SURPLUS, resolve_edges
-from applications.stella.run_stella_firm_network import CALIBRATION
+from applications.stella.paths import CALIBRATION
 from applications.stella.stella_provenance import archive_existing, file_fingerprints
 
 
@@ -86,13 +87,16 @@ def validate(directory: Path, octave: str, *, export_inputs: bool = False) -> di
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--calibration-dir", type=Path, default=CALIBRATION)
-    parser.add_argument("--octave", default=shutil.which("octave") or "/usr/local/bin/octave")
-    parser.add_argument("--output", type=Path, default=ROOT / "output/stella_original_constructor_validation.json")
+    parser.add_argument("--octave")
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--export-inputs", action="store_true",
                         help="save private headerless inputs for the untouched deposited constructors")
     args = parser.parse_args()
-    payload = validate(args.calibration_dir, args.octave, export_inputs=args.export_inputs)
-    path = args.output
+    octave = find_program("octave", args.octave)
+    if octave is None:
+        parser.error("Octave is required; set OCTAVE or pass --octave.")
+    payload = validate(args.calibration_dir, octave, export_inputs=args.export_inputs)
+    path = args.output or args.calibration_dir / "original_constructor_validation.json"
     archive_existing(path)
     path.write_text(json.dumps(payload, indent=2) + "\n")
     print(json.dumps(payload, indent=2))

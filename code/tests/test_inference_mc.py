@@ -430,7 +430,6 @@ def test_counts_resampling_matches_gather():
 
     # Moving blocks are several runs per draw, with the last one truncated.
     for block_length in (7, 8, 13):
-        n_blocks = int(np.ceil(t / block_length))
         rng2 = np.random.default_rng(99)
         runs = [mc._block_runs(t, b, block_length, rng2) for _ in range(c)]
         starts_b = np.stack([r[0] for r in runs])
