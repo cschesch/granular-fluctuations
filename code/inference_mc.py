@@ -31,7 +31,7 @@ from mgp_core import (
     ledermann_bound,
     lpt_buckets,
 )
-from near_optimal import delta_rate, near_optimal_derivative
+from near_optimal import delta_rate, near_optimal_derivative, require_solved
 from mosek_face import licensed_mosek
 from fast_mgp import (
     common_rank,
@@ -171,9 +171,14 @@ def _firm_level_truth(design: Design, sigma_full: np.ndarray, sizes: np.ndarray,
     if use_cache and path.exists():
         with open(path, "rb") as handle:
             return float(pickle.load(handle))
-    if len(sizes) >= 200:
+    value = None
+    if len(sizes) < 200:
+        firm = firm_level_mgp(sigma_full[None], sizes, max_iter=FIRM_MAX_ITER)
+        if bool(firm.acceptable(FIRM_GAP_TOL)[0]):
+            value = float(firm.value[0])
+    if value is None:
         # The full-panel problem is solved only once per population. Use the
-        # reference conic formulation; the batched barrier is for small groups.
+        # reference conic formulation for large panels and failed small solves.
         import cvxpy as cp
         n=len(sizes); weights=sizes**2
         scale=float(objective_scale or np.sum(weights*np.diag(sigma_full)))
@@ -200,14 +205,6 @@ def _firm_level_truth(design: Design, sigma_full: np.ndarray, sizes: np.ndarray,
             POP_CACHE.mkdir(parents=True, exist_ok=True)
             path.with_suffix('.json').write_text(json.dumps(dict(
                 method=solver,lower=value,upper=upper,relative_gap=relative_gap),indent=2)+'\n')
-    else:
-        firm = firm_level_mgp(sigma_full[None], sizes, max_iter=FIRM_MAX_ITER)
-        if not bool(firm.converged[0]) and float(firm.relative_gap[0]) > FIRM_GAP_TOL:
-            raise RuntimeError(
-                f"Firm-level MGP for design {design.name!r} stalled at relative gap "
-                f"{float(firm.relative_gap[0]):.2e}."
-            )
-        value = float(firm.value[0])
     if use_cache:
         POP_CACHE.mkdir(parents=True, exist_ok=True)
         atomic_write_pickle(value, path)
@@ -244,7 +241,8 @@ def build_population(design: Design, use_cache: bool = True) -> Population:
 
 # Bump when the Population layout or the numerical path changes, so stale pickles are
 # rebuilt rather than unpickled into the wrong shape.
-POP_CACHE_VERSION = "v2"
+# Earlier populations did not require both solver convergence and feasibility.
+POP_CACHE_VERSION = "v3"
 
 
 def _key_slug(key: tuple) -> str:
@@ -309,8 +307,8 @@ def _build_population(design: Design, use_cache: bool = True) -> Population:
     gamma0 = _firm_level_truth(design, sigma_full, sizes, use_cache, granular_level) / sigma_y2
 
     grouped = mgp_batch(sigma_grouped[None])
-    if not bool(grouped.converged[0]):
-        raise RuntimeError(f"Grouped MGP did not converge for design {design.name!r}.")
+    require_solved(grouped.value, grouped.acceptable(),
+                   f"Grouped population MGP for design {design.name!r}")
     gamma_bar0 = float(grouped.value[0]) / sigma_y2
     ystar = grouped.dual[0]
     common = grouped.common(sigma_grouped[None])[0]
@@ -422,6 +420,7 @@ def point_estimates(x: np.ndarray, kbar: float) -> PointEstimates:
     k, t, m = x.shape
     sigma = batch_cov(x)
     sol = mgp_batch(sigma)
+    require_solved(sol.value, sol.acceptable(), "Monte Carlo point estimates")
     one = np.ones(m)
     denom = sigma.sum(axis=(-2, -1))          # 1'Sigma 1
     share = sol.value / denom
@@ -612,6 +611,7 @@ def _shares_from_cov(sigma: np.ndarray) -> np.ndarray:
     """Grouped shares for a stack of covariances of any leading shape."""
     flat = sigma.reshape(-1, sigma.shape[-1], sigma.shape[-1])
     sol = mgp_batch(flat, mu_end=MC_MU_END, need_dual=False)
+    require_solved(sol.value, sol.acceptable(), "Monte Carlo resampled shares")
     return (sol.value / flat.sum(axis=(-2, -1))).reshape(sigma.shape[:-2])
 
 
@@ -621,7 +621,7 @@ def _directional_shares(
     """Estimate share responses for a (C,B,M,M) stack using the near-optimal set.
 
     ``delta`` is an objective tolerance relative to each estimated SDP value.
-    Return the responses and the number of unsuccessful directions. See
+    Raise if any direction remains unsuccessful after solver retries. See
     NUMERICAL_METHODS.md for the set construction and quotient rule.
     """
     c, b, m, _ = directions.shape
@@ -631,9 +631,11 @@ def _directional_shares(
         directions.reshape(-1, m, m), est.sigma[rows], cap,
         np.repeat(np.arange(c), b), mu_end=MC_MU_END,
     )
+    require_solved(level, solved, "Monte Carlo near-optimal derivatives")
     trace = directions.sum(axis=(-2, -1))                       # 1'H 1
     a = aggregate[:, None]
     stat = level.reshape(c, b) / a - est.share[rows][:, None] * trace / a
+    require_solved(stat.reshape(-1), solved, "Monte Carlo share derivatives")
     return stat, int((~solved).sum())
 
 

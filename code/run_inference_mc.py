@@ -25,7 +25,8 @@ from mgp_core import RUN_OUTPUT_CACHE, atomic_write_pickle
 BASE=dict(n=1000,zeta=1.,r=3,m=10,t=100,seed=20260901)
 T_GRID=(50,100,250,1000,2500,10000)
 CACHE=RUN_OUTPUT_CACHE/'mc_new_checkpoints'
-CACHE_VERSION='paired-1000-v1'
+# Do not reuse simulations produced before failed solves stopped inference.
+CACHE_VERSION='paired-1000-v2'
 REPLICATIONS=1000
 BOOTSTRAP_DRAWS=199
 
@@ -190,7 +191,9 @@ def main():
                 row={**result['row'],'design':f"{result['row']['design']}_c{scale}",'delta_scale':scale}
                 cov=[{**item,'design':row['design'],'label':row['label']} for item in coverage]
                 bundle['delta'].append(dict(row=row,coverage=cov))
-        bundle['meta']=dict(regular_r=3,nonregular_r=3,regular_draw=1,
+        bundle['meta']=dict(cache_version=CACHE_VERSION,
+                            population_cache_version=mc.POP_CACHE_VERSION,
+                            regular_r=3,nonregular_r=3,regular_draw=1,
                             nonregular_draw=selected_draw(),base=BASE,t_grid=T_GRID,
                             replications=simulation_config(args.smoke).reps,
                             bootstrap_draws=simulation_config(args.smoke).n_boot)

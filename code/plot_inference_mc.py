@@ -25,6 +25,21 @@ MARKERS={'normal':'^','bootstrap':'s','gradient_bootstrap':'o','subsampling':'D'
 TGRID=(50,100,250,1000,2500,10000)
 
 
+def load_simulations(path):
+    """Require results produced with the current solver acceptance checks."""
+    from inference_mc import POP_CACHE_VERSION
+    from run_inference_mc import CACHE_VERSION
+
+    with path.open('rb') as handle:
+        data=pickle.load(handle)
+    expected=dict(cache_version=CACHE_VERSION,population_cache_version=POP_CACHE_VERSION)
+    if any(data.get('meta',{}).get(key)!=version for key,version in expected.items()):
+        raise ValueError(
+            f"{path} predates the current solver checks. Rerun run_inference_mc.py "
+            "to regenerate this bundle before plotting; the existing file has been retained.")
+    return data
+
+
 def setup():
     plt.style.use('default')
     plt.rcParams.update({'font.size':12,'axes.titlesize':13,'legend.fontsize':10,
@@ -278,8 +293,7 @@ def main():
     args=parser.parse_args(); setup()
     if args.compustat_only:
         compustat(); return
-    with args.input.open('rb') as handle:
-        data=pickle.load(handle)
+    data=load_simulations(args.input)
     meta=data.get('meta',{})
     coverage(data['sweep'],meta)
     merged=designs(data['main'])

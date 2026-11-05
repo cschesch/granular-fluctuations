@@ -160,14 +160,24 @@ On the exact central path, `Y = mu P` obeys the appropriate dual diagonal
 constraints. The primal-dual gap is `(q + |I|) mu`, since the matrix barrier has
 size q and there are `|I|` scalar barriers. For the full basis with all
 coordinates nonnegative this is `2 M mu`. `BatchSolution.relative_gap` reports
-`2 M mu / |value|` (using denominator one at zero value), even for reduced or
-masked problems. Treat it as a barrier-based diagnostic alongside convergence
-and explicit feasibility checks, not as an unconditional numerical certificate.
+`(q + |I|) mu / |value|` (using denominator one at zero value), with the barrier
+count recorded separately for each problem. `BatchSolution.acceptable()` also
+requires convergence, finite results and terminal primal feasibility. When a
+dual is requested, it checks its semidefiniteness and diagonal constraints too.
+The gap remains a central-path diagnostic, not an unconditional certificate.
 
-With its default backstop enabled, `near_optimal_derivative` retries unsuccessful
-compiled solves using MOSEK when available, otherwise Clarabel. These retries
-solve the same near-optimal problem; they do not substitute a selected dual
-optimizer. The NumPy path used without Numba returns its own success flags
-without these general-solver retries. Returned failure flags must therefore be
-considered separately from mathematical boundedness. `tests/test_inference_mc.py`
-contains comparisons against CVXPY and analytical benchmarks.
+Both near-optimal implementations check that the original covariance is finite
+and positive definite before scaling it. With its default backstop enabled,
+`near_optimal_derivative` retries unsuccessful compiled or NumPy solves using
+licensed MOSEK when available, then Clarabel for any remaining failures.
+Clarabel results must pass feasibility and objective-gap checks. The retries
+solve the same problem for the same draw. Unresolved directions return NaN and
+a failure flag; empirical and Monte Carlo inference raise before computing
+quantiles. Draws are never dropped or replaced to obtain a successful result.
+
+Empirical bootstrap checkpoints reuse only finite draws stamped with the current
+solver policy and a successful-solve flag, as well as the matching input and RNG
+signature. Unverified old draws are recomputed. Monte Carlo and tightness caches
+have new versions so old unchecked results cannot bypass these checks.
+`tests/test_inference_mc.py` compares successful estimates with CVXPY and
+analytical benchmarks; the solver-failure tests exercise retries and rejection.

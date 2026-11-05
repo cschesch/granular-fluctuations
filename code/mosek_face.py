@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Direct-to-MOSEK solver for the near-optimal-set SDP, used as an exact backstop.
+"""Direct-to-MOSEK solver for the near-optimal-set SDP, used for numerical retries.
 
 The directional derivative of the grouped ceiling is
 
@@ -7,10 +7,10 @@ The directional derivative of the grouped ceiling is
 
 with ``cap = (1 + delta_T) Gamma_hat`` (see ``near_optimal``). The barrier method
 in ``mgp_kernels.barrier_nearopt`` solves the great majority of these, but its dual can
-stall on badly conditioned grouped covariances. Unlike the thresholded-face construction
-this replaces, the program here is always feasible and bounded when ``Sigma_hat > 0`` --
-``Y*`` is feasible, and ``<Y,Sigma_hat> >= lambda_min(Sigma_hat) tr(Y)`` caps the trace
--- so a general solver can always finish the job. This module is that backstop.
+stall on badly conditioned grouped covariances. For positive-definite ``Sigma_hat``
+and a cap above the optimum, the set is nonempty and bounded:
+``<Y,Sigma_hat> >= lambda_min(Sigma_hat) tr(Y)`` bounds the trace. This does not
+guarantee numerical success; unresolved directions retain a failure flag.
 
 Only the objective varies across the directions of one replication, so the task is built
 once and each direction rewrites ``bar c`` against a fixed basis of elementary symmetric

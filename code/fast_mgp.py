@@ -25,6 +25,7 @@ CENTER_TOL = 3e-1       # Newton decrement^2 tolerated before shrinking mu
 FINAL_TOL = 1e-11       # Newton decrement^2 required at mu = MU_END
 MAX_ITER = 500
 HESSIAN_JITTER = 1e-13
+FEASIBILITY_TOL = 1e-5
 # Stop iterates that exceed this numerical divergence threshold.
 DIVERGENCE_BOUND = 1e3
 
@@ -39,12 +40,23 @@ class BatchSolution:
     mu: np.ndarray           # (K,)      terminal barrier parameter
     iterations: int          # batch steps, or iteration limit on the compiled path
     converged: np.ndarray    # (K,)      reached MU_END with a centered iterate
+    barrier_count: np.ndarray  # (K,)    matrix-cone dimension plus scalar barriers
+    feasible: np.ndarray     # (K,)      terminal primal, and requested dual, checks
 
     @property
     def relative_gap(self) -> np.ndarray:
         """Barrier-based relative-gap diagnostic; interpret with convergence and feasibility checks."""
-        m = self.nu.shape[1]
-        return 2.0 * m * self.mu / np.where(self.value != 0, np.abs(self.value), 1.0)
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            return self.barrier_count * self.mu / np.where(self.value != 0, np.abs(self.value), 1.0)
+
+    def acceptable(self, gap_tol: float | None = None) -> np.ndarray:
+        """Require convergence, finite values and feasibility; optionally limit the gap diagnostic."""
+        gap = self.relative_gap
+        ok = (self.converged & self.feasible & np.isfinite(self.value) & np.isfinite(self.mu)
+              & (self.mu >= 0) & np.isfinite(gap) & (gap >= 0))
+        if gap_tol is not None:
+            ok &= gap <= gap_tol
+        return ok
 
     def common(self, sigma: np.ndarray) -> np.ndarray:
         """C = Sigma - Diag(nu), the estimated common part for a full-basis solve."""
@@ -63,6 +75,73 @@ def _as_batch(sigma: np.ndarray) -> np.ndarray:
 
 def _symmetrize(a: np.ndarray) -> np.ndarray:
     return 0.5 * (a + np.swapaxes(a, -1, -2))
+
+
+def _positive_definite(matrices: np.ndarray) -> np.ndarray:
+    """Check terminal barrier cones without letting one failed row abort a batch."""
+    good = np.isfinite(matrices).all(axis=(1, 2))
+    rows = np.flatnonzero(good)
+    try:
+        np.linalg.cholesky(matrices[rows])
+    except np.linalg.LinAlgError:
+        for row in rows:
+            try:
+                np.linalg.cholesky(matrices[row])
+            except np.linalg.LinAlgError:
+                good[row] = False
+    return good
+
+
+def _finish_solution(s, s_basis, basis, w, w_scale, mask, scale,
+                     nu, mu, converged, iterations, need_dual):
+    """Validate terminal iterates; omitted duals do not incur an extra inversion."""
+    k, m = nu.shape
+    mask_k = np.broadcast_to(mask, (k, m))
+    if basis is None:
+        q = m
+        cone = s - nu[:, :, None] * np.eye(m)
+    else:
+        q = basis.shape[-1]
+        basis_k = np.broadcast_to(basis, (k, m, q))
+        cone = s_basis - np.einsum("ki,kia,kib->kab", nu, basis_k, basis_k)
+    cone = _symmetrize(cone)
+    feasible = (_positive_definite(cone) & np.isfinite(nu).all(axis=1)
+                & np.isfinite(mu) & (mu >= 0)
+                & np.all(~mask_k | (nu >= -FEASIBILITY_TOL), axis=1))
+    y = np.zeros((k, m, m))
+    if need_dual:
+        rows = np.flatnonzero(feasible)
+        inverse = np.empty_like(cone[rows])
+        try:
+            inverse[:] = np.linalg.inv(cone[rows])
+        except np.linalg.LinAlgError:
+            for j, row in enumerate(rows):
+                try:
+                    inverse[j] = np.linalg.inv(cone[row])
+                except np.linalg.LinAlgError:
+                    inverse[j] = np.nan
+                    feasible[row] = False
+        if basis is None:
+            y[rows] = mu[rows, None, None] * inverse
+        else:
+            y[rows] = mu[rows, None, None] * np.einsum(
+                "kia,kab,kjb->kij", basis_k[rows], inverse, basis_k[rows])
+        y = _symmetrize(y)
+        finite = np.isfinite(y).all(axis=(1, 2))
+        feasible &= finite
+        rows = np.flatnonzero(feasible)
+        norm = np.maximum(np.linalg.norm(y[rows], axis=(1, 2)), 1.0)
+        feasible[rows] &= np.linalg.eigvalsh(y[rows])[:, 0] >= -FEASIBILITY_TOL * norm
+        diagonal = np.einsum("kii->ki", y)
+        slack = diagonal - w
+        tolerance = FEASIBILITY_TOL * np.maximum(np.abs(w), 1e-12)
+        feasible &= np.all(np.where(mask_k, slack >= -tolerance, np.abs(slack) <= tolerance), axis=1)
+    return BatchSolution(
+        value=(nu @ w) * scale * w_scale, nu=nu * scale[:, None],
+        dual=y * w_scale, mu=mu * scale * w_scale,
+        iterations=iterations, converged=converged,
+        barrier_count=np.asarray(q + mask_k.sum(axis=1)), feasible=feasible,
+    )
 
 
 def _feasible_start(
@@ -145,13 +224,15 @@ def solve_batch(
     """Solve ``max w'nu s.t. V'(Sigma_k - Diag(nu))V >= 0`` for every k at once.
 
     ``sigma`` is (K,M,M) (a single (M,M) is promoted). ``nonneg`` is True/False or
-    a length-M boolean mask of coordinates constrained to nu_i >= 0. ``basis`` is
-    an (M,q) matrix with orthonormal columns; None means the identity.
+    a length-M boolean mask of coordinates constrained to nu_i >= 0. Reduced
+    compiled problems also accept one (K,M) mask and (K,M,q) basis per problem.
+    ``basis`` otherwise is (M,q) with orthonormal columns; None means the identity.
     ``weights`` is a positive length-M objective vector; None means all ones.
     ``nu_init`` and ``mu_init`` warm-start the same optimization problem.
     For a shared reduced basis, ``guard`` uses the NumPy path and caps steps
     inside the estimated cone boundary. ``need_dual=False`` skips dual
-    reconstruction on the compiled path when only the value is needed.
+    reconstruction when only the value is needed. ``acceptable()`` checks
+    convergence and terminal feasibility; a small ``relative_gap`` alone does not.
     """
     sig = _as_batch(sigma)
     k, m, _ = sig.shape
@@ -287,21 +368,9 @@ def solve_batch(
         nu_out[live] = nu_live
         mu_out[live] = mu_live
 
-    nu_out = np.where(np.isfinite(nu_out), nu_out, 0.0)
-    if basis is None:
-        y = mu_out[:, None, None] * np.linalg.inv(s - nu_out[:, :, None] * eye)
-    else:
-        g_mat = s_basis - np.einsum("ki,ia,ib->kab", nu_out, basis, basis)
-        y = mu_out[:, None, None] * np.einsum("ia,kab,jb->kij", basis, np.linalg.inv(g_mat), basis)
-
-    return BatchSolution(
-        value=(nu_out @ w) * scale * w_scale,
-        nu=nu_out * scale[:, None],
-        dual=_symmetrize(y) * w_scale,
-        mu=mu_out * scale * w_scale,
-        iterations=iterations,
-        converged=ok_out,
-    )
+    return _finish_solution(s, s_basis if basis is not None else None, basis,
+                            w, w_scale, mask, scale, nu_out, mu_out, ok_out,
+                            iterations, need_dual)
 
 
 def _run_full_kernel(s, w, mask, nu_out, mu_out, ok_out, tail):
@@ -379,27 +448,12 @@ def _solve_batch_compiled(s, s_basis, basis, w, w_scale, mask, scale, nu, mu0,
             nu_out, mu_out, ok_out)
     if basis is None:
         _run_full_kernel(s, w, mask, nu_out, mu_out, ok_out, args[2:9])
-        y = (mu_out[:, None, None] * np.linalg.inv(s - nu_out[:, :, None] * np.eye(m))
-             if need_dual else np.zeros((len(nu_out), m, m)))
     else:
         basis_k = basis if basis.ndim == 3 else np.broadcast_to(basis, (k,) + basis.shape)
         mask_k = mask if mask.ndim == 2 else np.broadcast_to(mask, (k, m))
         _run_reduced_kernel(s_basis, basis_k, w, mask_k, nu_out, mu_out, ok_out, args[2:9])
-        if need_dual:
-            g_mat = s_basis - np.einsum("ki,kia,kib->kab", nu_out, basis_k, basis_k)
-            y = mu_out[:, None, None] * np.einsum(
-                "kia,kab,kjb->kij", basis_k, np.linalg.inv(g_mat), basis_k
-            )
-        else:
-            y = np.zeros((len(nu_out), m, m))
-    return BatchSolution(
-        value=(nu_out @ w) * scale * w_scale,
-        nu=nu_out * scale[:, None],
-        dual=_symmetrize(y) * w_scale,
-        mu=mu_out * scale * w_scale,
-        iterations=int(max_iter),
-        converged=ok_out,
-    )
+    return _finish_solution(s, s_basis, basis, w, w_scale, mask, scale,
+                            nu_out, mu_out, ok_out, int(max_iter), need_dual)
 
 
 def mgp_batch(sigma: np.ndarray, **kwargs) -> BatchSolution:
@@ -490,7 +544,7 @@ def directional_derivative_batch(
             return single, np.ones(len(directions), dtype=bool)
     sol = solve_batch(directions, nonneg=nonneg, basis=basis, mu_end=mu_end,
                       need_dual=False)
-    value, failed = sol.value.copy(), ~sol.converged
+    value, failed = sol.value.copy(), ~sol.acceptable()
     if failed.any():
         # Retry with a tighter barrier target and more iterations. A shared face
         # also permits a guarded retry. Remaining failures return the selected-dual
@@ -503,12 +557,12 @@ def directional_derivative_batch(
             mu_end=mu_end * 1e-2, max_iter=2 * MAX_ITER, need_dual=False,
         )
         value[idx] = retry.value
-        failed[idx] = ~retry.converged
+        failed[idx] = ~retry.acceptable()
         if failed.any() and basis.ndim == 2:
             idx = np.flatnonzero(failed)
             guarded = solve_batch(directions[idx], nonneg=nonneg, basis=basis, guard=True)
             value[idx] = guarded.value
-            failed[idx] = ~guarded.converged
+            failed[idx] = ~guarded.acceptable()
     return np.where(failed, single, value), failed
 
 

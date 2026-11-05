@@ -20,6 +20,10 @@ from fast_mgp import solve_batch
 from inference_mc import feasible_objectives, power_law_sizes
 from mosek_face import licensed_mosek
 
+# Older checkpoints only checked the barrier gap. Keep those files, but never
+# reuse them for figures that require convergence and feasible terminal iterates.
+CACHE_VERSION = 'solver-v2'
+
 
 def block(n, exponent, m, reps, gamma_target, idio_sd, seed, mu_end):
     """Solve population bounds for one size exponent and group count.
@@ -47,9 +51,10 @@ def block(n, exponent, m, reps, gamma_target, idio_sd, seed, mu_end):
         exposure+=(col@root)**2
         sigma2_lambda=planted*(1-gamma_target)/(gamma_target*exposure)
         sigma=sigma2_lambda[:,None,None]*gram+(diagonal/loads[None,:])[:,:,None]*eye
-        sol=solve_batch(sigma,weights=loads,mu_end=mu_end,need_dual=False)
+        sol=solve_batch(sigma,weights=loads,mu_end=mu_end,need_dual=True)
         values=np.asarray(sol.value).copy()
         gap=np.asarray(sol.relative_gap).copy()
+        ok=sol.acceptable(1e-6)
         if r==1:
             # For one factor, the balancing inequality is an exact recovery
             # certificate. It also avoids subtracting huge nearly cancelling
@@ -58,15 +63,18 @@ def block(n, exponent, m, reps, gamma_target, idio_sd, seed, mu_end):
             balanced=2*absolute.max(axis=1)<absolute.sum(axis=1)*(1-1e-12)
             values[balanced]=planted[balanced]
             gap[balanced]=0
-        ok=gap<1e-6
+            ok[balanced]=True
         if not ok.all():
-            scale=np.linalg.norm(sigma[~ok],axis=(1,2))*loads.mean()
-            retry_mu=min(mu_end,float(np.min(np.abs(values[~ok])*1e-7/(2*m*scale))))
-            retry=solve_batch(sigma[~ok],weights=loads,mu_end=retry_mu,need_dual=False,
+            failed=np.flatnonzero(~ok)
+            scale=np.linalg.norm(sigma[failed],axis=(1,2))*loads.mean()
+            targets=np.abs(values[failed])*1e-7/(2*m*scale)
+            targets=targets[np.isfinite(targets)&(targets>0)]
+            retry_mu=min(mu_end,float(targets.min())) if targets.size else mu_end
+            retry=solve_batch(sigma[failed],weights=loads,mu_end=retry_mu,need_dual=True,
                               max_iter=1200)
-            values[~ok]=retry.value
-            gap[~ok]=retry.relative_gap
-            ok[~ok]=np.asarray(retry.relative_gap)<1e-6
+            values[failed]=retry.value
+            gap[failed]=retry.relative_gap
+            ok[failed]=retry.acceptable(1e-6)
         if not ok.all():
             # A few almost-cancelling factor draws need a conic solver rather
             # than the batched barrier. Check its primal/dual value agreement.
@@ -91,16 +99,16 @@ def block(n, exponent, m, reps, gamma_target, idio_sd, seed, mu_end):
                 dual=cp.Problem(cp.Minimize(cp.sum(cp.multiply(covariance,y))),
                                [y>>0,cp.diag(y)>=1])
                 primal.solve(**options);dual.solve(**options)
-                if use_mosek:
-                    assert primal.status == dual.status == cp.OPTIMAL
-                    lower, upper = primal.value, dual.value
-                else:
-                    solved = {cp.OPTIMAL, cp.OPTIMAL_INACCURATE}
-                    if primal.status not in solved or dual.status not in solved:
-                        raise RuntimeError(f"Tightness SDP statuses: {primal.status}, {dual.status}")
-                    lower, upper = feasible_objectives(covariance, diagonal_var.value, y.value, np.ones(m), eps=2e-15)
+                solved = {cp.OPTIMAL} if use_mosek else {cp.OPTIMAL, cp.OPTIMAL_INACCURATE}
+                if primal.status not in solved or dual.status not in solved:
+                    raise RuntimeError(f"Tightness SDP statuses: {primal.status}, {dual.status}")
+                if (diagonal_var.value is None or y.value is None
+                        or not np.isfinite(diagonal_var.value).all() or not np.isfinite(y.value).all()):
+                    raise RuntimeError("Tightness SDP returned nonfinite primal or dual values")
+                lower, upper = feasible_objectives(covariance, diagonal_var.value, y.value, np.ones(m), eps=2e-15)
                 gap[j]=abs(upper-lower)/max(abs(upper),1e-30)
-                assert gap[j]<1e-5,(exponent,m,r,gap[j])
+                if not np.isfinite(gap[j]) or gap[j]>=1e-5:
+                    raise RuntimeError(f"Tightness SDP gap at zeta={exponent}, M={m}, r={r}, draw={j}: {gap[j]}")
                 values[j]=upper*scale
         excess=np.maximum(values/planted-1,0)
         # The calibrated total variance is planted/gamma_target by construction.
@@ -110,7 +118,7 @@ def block(n, exponent, m, reps, gamma_target, idio_sd, seed, mu_end):
         rows.append(dict(zeta=exponent,M=m,r=r,looseness=float(excess.mean()),
                          median_looseness=float(np.median(excess)),
                          recovery=float(np.mean(excess<=1e-6)),reps=reps,n=n,
-                         idio_sd=idio_sd,gamma_target=gamma_target,seed=seed,
+                         idio_sd=idio_sd,gamma_target=gamma_target,seed=seed,mu_end=mu_end,
                          max_relative_gap=float(gap.max())))
     return rows
 
@@ -194,7 +202,7 @@ def main():
     p.add_argument('--from-cache',action='store_true')
     p.add_argument('--restart',action='store_true')
     a=p.parse_args()
-    path=RUN_OUTPUT_CACHE/f'{a.stem}.csv'
+    path=RUN_OUTPUT_CACHE/f'{a.stem}_{CACHE_VERSION}.csv'
     if a.from_cache:
         table=pd.read_csv(path)
     else:
@@ -203,6 +211,7 @@ def main():
             assert (old.reps==a.reps).all() and (old.n==a.n).all()
             assert (old.idio_sd==a.idio_sd).all() and (old.gamma_target==a.gamma_target).all()
             assert (old.seed==a.seed).all()
+            assert (old.mu_end==a.mu_end).all()
         rows=old.to_dict('records'); start=time.monotonic()
         pending=[]
         for exponent in map(float,a.zetas.split(',')):

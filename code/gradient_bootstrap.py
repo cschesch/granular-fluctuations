@@ -26,7 +26,7 @@ from mgp_core import (
     atomic_write_pickle,
 )
 
-from near_optimal import delta_rate, near_optimal_derivative
+from near_optimal import SOLVER_POLICY_VERSION, delta_rate, near_optimal_derivative, require_solved
 
 
 class ShareDirectionalDerivative:
@@ -69,7 +69,7 @@ class ShareDirectionalDerivative:
         value, ok = near_optimal_derivative(directions, self.sigma, self.cap)
         self._face_solves += int(ok.sum())
         self._face_fallbacks += int((~ok).sum())
-        return value
+        return require_solved(value, ok, "Gradient-bootstrap derivative")
 
     def level(self, hmat: np.ndarray) -> float:
         return float(self.levels(np.asarray(hmat, dtype=float)[None])[0])
@@ -77,7 +77,10 @@ class ShareDirectionalDerivative:
     def shares(self, directions: np.ndarray) -> np.ndarray:
         directions = np.asarray(directions, dtype=float)
         trace = directions.sum(axis=(-2, -1))
-        return self.levels(directions) / self.a - self.g_hat * trace / self.a
+        stats = self.levels(directions) / self.a - self.g_hat * trace / self.a
+        if not np.isfinite(stats).all():
+            raise RuntimeError("Nonfinite gradient-bootstrap share derivative")
+        return stats
 
     def share(self, hmat: np.ndarray) -> float:
         return float(self.shares(np.asarray(hmat, dtype=float)[None])[0])
@@ -186,6 +189,17 @@ def bootstrap_family(x: np.ndarray, b: int, block_length: int, rng: np.random.Ge
                           f"different estimator (want {estimator_id})", flush=True)
                 existing = existing[stamped == estimator_id]
         if not existing.empty:
+            if not {"solver_policy", "directional_solved"}.issubset(existing.columns):
+                print("[gradient_bootstrap] recomputing checkpoint without solver validation", flush=True)
+                existing = existing.iloc[0:0]
+            else:
+                verified = (existing["solver_policy"].eq(SOLVER_POLICY_VERSION)
+                            & existing["directional_solved"].eq(True)
+                            & np.isfinite(existing[["g_share", "directional_stat"]]).all(axis=1))
+                if not verified.all():
+                    print(f"[gradient_bootstrap] recomputing {int((~verified).sum())} unverified draws", flush=True)
+                existing = existing.loc[verified]
+        if not existing.empty:
             existing = existing[
                 existing["family"].isin(["iid", "block"])
                 & pd.to_numeric(existing["draw"], errors="coerce").between(1, b)
@@ -233,6 +247,8 @@ def bootstrap_family(x: np.ndarray, b: int, block_length: int, rng: np.random.Ge
                 sig_b = sample_cov(x[idx])
                 g = _share_from_cov(sig_b, solver)
                 d = dd.share(np.sqrt(t) * (sig_b - sig_hat))
+                if not np.isfinite(g):
+                    raise RuntimeError("Nonfinite bootstrap point estimate")
                 rows_by_key[key] = {
                     "family": family,
                     "draw": j,
@@ -242,6 +258,8 @@ def bootstrap_family(x: np.ndarray, b: int, block_length: int, rng: np.random.Ge
                     "directional_common_rank": dd.r,
                     "directional_regular": dd.regular,
                     "estimator_id": estimator_id,
+                    "solver_policy": SOLVER_POLICY_VERSION,
+                    "directional_solved": True,
                 }
                 solved_now += 1
                 dirty = True
@@ -266,10 +284,12 @@ def bootstrap_family(x: np.ndarray, b: int, block_length: int, rng: np.random.Ge
                 save_checkpoint()
                 dirty = False
 
-    run_family("iid", idx_iid, None)
-    run_family("block", idx_blk, block_length)
-    if checkpoint_path is not None:
-        save_checkpoint()
+    try:
+        run_family("iid", idx_iid, None)
+        run_family("block", idx_blk, block_length)
+    finally:
+        if checkpoint_path is not None and rows_by_key:
+            save_checkpoint()
 
     rows = pd.DataFrame(rows_by_key.values())
     iid_rows = rows[rows["family"] == "iid"].sort_values("draw")

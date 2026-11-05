@@ -85,3 +85,7 @@ estimates, logs and checkpoints are stored in `code/.cache/`. These folders
 are created automatically and are ignored by Git.
 
 Clean-panel caches are keyed by input-file hashes and cleaning versions.
+Derivative solves retry the same draw with general SDP solvers when needed.
+An unresolved solve stops the affected analysis before confidence intervals are
+computed. Bootstrap checkpoints resume only validated draws; older checkpoints
+without solver-success metadata are recomputed. Clean-panel caches are retained.

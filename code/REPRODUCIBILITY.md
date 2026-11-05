@@ -67,3 +67,11 @@ paper's full inference run or its confidence intervals.
 Clean-panel keys hash complete input files and include cleaning versions. Simulation
 checkpoints use numerical parameters plus an explicit version, so moving the
 checkout or renaming an entry point does not change the experiment's identity.
+
+After the solver-failure handling changes on 5 November 2026, a separate replay
+used 1,000 bootstrap draws per panel for countries, banks and country equity
+markets, seed 20260907 and CLARABEL without MOSEK. Point estimates, standard
+errors and confidence endpoints were exactly unchanged from the preceding code;
+all 3,000 derivative solves succeeded in both runs. Two small Monte Carlo designs
+with active nonnegativity constraints also reproduced all 712 compared numerical
+values exactly. These checks do not replace a rerun of the full paper simulations.
