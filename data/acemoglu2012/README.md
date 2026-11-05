@@ -12,9 +12,8 @@ explains the zero-output commodity reassignments used by the match.
 `code/applications/acemoglu/panel.py` reads and validates the NBER–CES panel.
 The analysis retains the authors' detrending and matches 451 balanced
 manufacturing industries to 341 common units in the deposited 1992 network.
-It also computes the two alternatives reported in the draft's footnote:
-original SIC industries weighted by 1958 shipments, and network influences
-allocated to SIC industries.
+Two sensitivity checks use the original SIC industries, weighted either by
+1958 shipments or by network influences allocated to those industries.
 
 From `code/`:
 

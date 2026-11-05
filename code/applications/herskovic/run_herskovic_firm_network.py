@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""One 1980 Herskovic completion, closest-size matching, and zero-hidden-shock Schur inversion.
+"""Estimate granularity using a completed Herskovic firm network.
 
-All deposited parameters and the original MATLAB size population are retained.
-Actual average real annual sales identify model slots; they never replace sizes.
-Observed 1980 within-panel sales shares are fixed exactly. The residual network
-is one calibrated imputation. Numerical identities are asserted, not tabulated.
-Licensed firm-level inputs and derived objects must remain private.
+Match observed firms to calibrated model firms by size, complete the
+unobserved network links, and recover shocks using a Schur-complement
+reduction with shocks to unobserved firms set to zero.
+
+Use one network completion and retain the original calibrated firm sizes.
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ class HerskovicInputs:
 
 
 def benchmark_parameters(path: Path = PARAMETERS_FILE) -> dict[str, float]:
-    """Read the deposited SMM solution; no downloaded code is executed."""
+    """Read the eight estimated parameters from benchmark_parameters.mat."""
     values = np.ravel(loadmat(path)["benchmark_parameters"]).astype(float)
     if values.size != 8:
         raise ValueError(f"Unexpected Herskovic parameter vector length: {values.size}")
@@ -65,7 +65,7 @@ def benchmark_parameters(path: Path = PARAMETERS_FILE) -> dict[str, float]:
     return dict(zip(names, values, strict=True))
 
 def load_linkages(path: Path = LINKAGES_FILE) -> pd.DataFrame:
-    """Load the six-column official supplier-customer-year MATLAB object."""
+    """Load supplier, customer, year, and sales variables from linkages2013.mat."""
     raw = loadmat(path)
     required = ("permno", "cpermno", "dates", "sale", "percsale", "ctotsale")
     missing = [name for name in required if name not in raw]
@@ -155,7 +155,11 @@ def original_sizes():
 
 
 def match_sizes(real_sales, sizes):
-    """Greedy closest remaining log-size pairs, with each model slot used once."""
+    """Match closest remaining log-size pairs, using each model slot once.
+
+    Observed mean real annual sales identify model slots; they do not replace
+    the original calibrated sizes used by the model.
+    """
     real_sales = real_sales.sort_index()
     n, m = len(sizes), len(real_sales)
     if m > n:

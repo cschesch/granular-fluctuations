@@ -511,14 +511,7 @@ def main() -> None:
                 gma[position[supplier], position[buyer]] = sector_share * float(ratio_emp[supplier] / denominator)
 
     alpha = np.diag([official_surplus[firm_sid[gvkey]] / official_output[firm_sid[gvkey]] for gvkey in usable])
-    dense = np.array(
-        [[official_io.loc[firm_sid[i], firm_sid[j]] > 0 for j in usable] for i in usable],
-        dtype=bool,
-    )
     input_totals = gma.sum(axis=0)
-    dense_shares = np.array([
-        [official_io.loc[firm_sid[i], firm_sid[j]] / official_output[firm_sid[j]] * ratio_emp[i]
-         for j in usable] for i in usable])
     output_dir.mkdir(parents=True, exist_ok=True)
     for previous in output_dir.glob("*.csv"):
         if not previous.name.startswith("selection_"):
@@ -529,7 +522,6 @@ def main() -> None:
     np.savetxt(output_dir / "alpha.csv", alpha, delimiter=",", fmt="%.17g")
     capital = np.eye(len(usable))
     np.savetxt(output_dir / "matrix_capital.csv", np.where(capital == 0, SMALL, capital), delimiter=",", fmt="%.17g")
-    pd.DataFrame(dense_shares, index=usable, columns=usable).to_csv(output_dir / "matrix_io_dense_economic_labeled.csv")
     employment_ratios.to_csv(output_dir / "firm_employment_ratios.csv")
     pd.DataFrame({
         "gvkey": usable,
@@ -567,12 +559,6 @@ def main() -> None:
         "baseline_firms_with_suppliers_positive_calibrated_share": int(((gma > 0).sum(axis=0) > 0).sum()),
         "baseline_mean_total_input_share": float(input_totals.mean()),
         "baseline_median_total_input_share": float(np.median(input_totals)),
-        "dense_firms_with_suppliers": int((dense.sum(axis=0) > 0).sum()),
-        "dense_median_suppliers": float(np.median(dense.sum(axis=0))),
-        "dense_min_suppliers": int(dense.sum(axis=0).min()),
-        "dense_mean_total_input_share": float(dense_shares.sum(axis=0).mean()),
-        "dense_median_total_input_share": float(np.median(dense_shares.sum(axis=0))),
-        "dense_max_total_input_share": float(dense_shares.sum(axis=0).max()),
         "employment_diagnostics": employment_diagnostics,
         "calibration": "Literal matrix_construction_IIcalibration.m with deposited BEA accounts: binary Historical Segments links and within-sector employment allocation.",
         "employment_approximation": "Source joint-year mean firm/sector employment ratios reconstructed from public BLS national QCEW and a CES railroad supplement. Historical classification scope proxies are declared separately; original unpublished BLS series/vintage are not identified. The source's three within-sample sector overrides are retained exactly.",

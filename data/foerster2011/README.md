@@ -5,9 +5,9 @@ checksum are in `source.json`.
 
 ## Requirements
 
-Octave and `gensys.m`, available with Dynare. Set `OCTAVE` to the executable
-and `GENSYS_DIR` to the directory containing `gensys.m` when they are not
-found automatically.
+Octave and `gensys.m` with its `qzdiv.m` and `qzswitch.m` helpers, available with
+Dynare. Set `OCTAVE` to the executable and `GENSYS_DIR` to the directory containing
+these three files when they are not found automatically.
 
 ## Prepare the data
 
@@ -24,3 +24,6 @@ files and spreadsheet ranges are identified beside those calculations.
 The shared model solver is `code/network_solver.py`.
 
 Results are written to `code/.cache/derived/foerster2011/`.
+Preparation validates source, code and output hashes before reusing this cache;
+validated results can be reused without Octave. When preparation is unavailable
+and the cache cannot be validated, the runner skips dependent analyses.

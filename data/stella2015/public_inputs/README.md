@@ -18,7 +18,8 @@ These bundled raw inputs reconstruct the public part of Stella's calibration:
 Source URLs and hashes remain in the accompanying provenance files.
 `python -m applications.stella.prepare_public`, run from `code/`, reconstructs
 employment denominators and the deposited GDP vector in the cache.
-The employment builder documents the NAICS mappings, ambiguous sector scopes,
-and Stella's three denominator overrides. The original release identifies BLS
-as its source but does not provide its sector series or vintage; this is a
-public reconstruction of those missing inputs.
+
+The original package names BLS as the source of sectoral employment but does
+not identify the series or data vintage. This repository reconstructs those
+inputs from public sources. The employment-building code records the industry
+mappings and three denominator overrides.

@@ -1,4 +1,4 @@
-# Paper pipeline for Granularity in High Dimensions.
+# Replication commands for How Granular Are Aggregate Fluctuations?
 .DEFAULT_GOAL := all
 
 PYTHON ?= python3

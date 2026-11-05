@@ -7,12 +7,13 @@ The Internet Archive has daily-level captures for that endpoint from 2019-08
 onward. This script writes a CDX manifest and optionally fetches a sampled
 archive panel (monthly by default, using the last capture in each period).
 
-Examples:
+Examples from the repository root:
+  python3 data/forbes_billionaires/build_forbes_billionaires_archive.py --frequency daily --start-date 2019-08-01 --end-date 2026-06-25 --no-raw
   python3 data/forbes_billionaires/build_forbes_billionaires_archive.py --manifest-only
-  python3 data/forbes_billionaires/build_forbes_billionaires_archive.py --frequency monthly --no-raw
-  python3 data/forbes_billionaires/build_forbes_billionaires_archive.py --frequency daily --tail-snapshots 43 --no-raw
-  python3 data/forbes_billionaires/build_forbes_billionaires_archive.py --frequency daily --no-raw --resume
-  python3 data/forbes_billionaires/build_forbes_billionaires_archive.py --frequency weekly --start-date 2024-01-01
+
+The daily example uses the bundled manifest's capture window. The paper's
+loader uses captures through 2025-12-31. Monthly and weekly sampling are
+optional alternatives; a new download need not match the paper's file checksum.
 """
 
 from __future__ import annotations

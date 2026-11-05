@@ -24,6 +24,11 @@ dates before downloading. The scripts save compressed CSV files and JSON
 sidecars recording the query, parameters, and checksum. Earlier downloads are
 not overwritten.
 
+The download scripts retrieve new extracts, not the paper's historical files.
+To run analyses with these downloads, select `--inputs latest` in the replication
+runner, as shown below. Reproducing the original inputs requires files matching
+the recorded checksums; renaming a new download does not make it the same snapshot.
+
 ## Which file is used?
 
 By default, each loader selects the exact filename recorded in its source
@@ -42,6 +47,4 @@ This selects the latest dated export for each WRDS dataset, or its standard
 analysis module, set `WRDS_INPUTS=latest`. The selected paths are printed and
 recorded by the runner. New inputs may produce different results from the paper.
 
-The default `--inputs paper` mode uses the published pins, not the private
-working-directory inventory. Keep licensed data and login credentials out of
-GitHub.
+Keep licensed data and login credentials out of the repository.

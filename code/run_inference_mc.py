@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Run the inference Monte Carlo experiments.
+"""Run the paper's inference simulations.
 
-Original r=3 population: regular baseline. The nonregular comparison is the
-first verified nonregular r=3 redraw, with sizes and idiosyncratic variances
-held fixed. A single sampling experiment supplies all tolerance comparisons.
-
-Run: python code/run_inference_mc.py --jobs 2
-Then: python code/plot_inference_mc.py
+Compare methods on regular and nonregular factor-model populations,
+including sensitivity to sample size and the near-optimality tolerance.
+Tolerance comparisons reuse the same simulated samples.
 """
 import os
 for key in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS',
@@ -46,6 +43,13 @@ def design(name,label,**changes):
 
 
 def selected_draw():
+    """Return the first verified nonregular r=3 loading draw.
+
+    The selection script redraws Gaussian loadings while keeping sizes,
+    idiosyncratic variances, and the LPT partition fixed. The population is
+    deliberately selected to be nonregular, not sampled to measure its prevalence.
+    The saved audit records the selection and its certificates.
+    """
     path=RUN_OUTPUT_CACHE/'selected_nonregular_zipf_r3.json'
     if not path.exists():
         from find_nonregular_zipf_population import main

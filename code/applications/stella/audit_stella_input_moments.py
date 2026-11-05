@@ -20,20 +20,11 @@ SECTIONS = (
         ("Balanced firms", "mapped_with_employment", 234, ",.0f"),
         ("Balanced share of sales", "current_vintage_selected_mean_share_of_unbalanced_sales", .45, ".2%"),
     )),
-    ("Sparse customer network", (
+    ("Customer network", (
         ("Suppliers with a matched client", "baseline_firms_with_clients", 58, ",.0f"),
         ("Suppliers with a positive calibrated link", "baseline_firms_with_clients_positive_calibrated_share", 58, ",.0f"),
         ("Mean total input share", "baseline_mean_total_input_share", .02, ".2%"),
         ("Median total input share", "baseline_median_total_input_share", 0, ".2%"),
-    )),
-    ("Dense sector-based network", (
-        ("Firms with counterparties", "dense_firms_with_suppliers", 234, ",.0f"),
-        ("Median column degree (suppliers)", "dense_median_suppliers", 215, ",.0f"),
-        ("Minimum column degree (suppliers)", "dense_min_suppliers", 190, ",.0f"),
-        ("Median row degree (clients)", "dense_median_clients", 215, ",.0f"),
-        ("Minimum row degree (clients)", "dense_min_clients", 190, ",.0f"),
-        ("Mean total input share", "dense_mean_total_input_share", .09, ".2%"),
-        ("Median total input share", "dense_median_total_input_share", .06, ".2%"),
     )),
     ("Growth moments", (
         ("SD of aggregate sales growth (pp)", "aggregate_growth_pct", 2.56, ".2f"),
@@ -56,12 +47,8 @@ SHARED_TARGETS = {
 
 def reconstructed_moments():
     moments = json.loads((CALIBRATION / "diagnostics.json").read_text())
-    dense = pd.read_csv(CALIBRATION / "matrix_io_dense_economic_labeled.csv", index_col=0).gt(0)
-    clients = dense.sum(axis=1)
     return {
         **moments,
-        "dense_median_clients": clients.median(),
-        "dense_min_clients": clients.min(),
         **growth_moments(UNBALANCED),
     }
 

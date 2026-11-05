@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Population tightness grid sharing the revised inference DGP.
+"""Simulate population tightness across factor counts and size distributions.
 
-N=1000; S_i proportional to i^-zeta; mean-one lognormal sigma_e,i^2;
-Gaussian loadings independent of size. Each draw/rank's loading scale fixes
-planted granularity at 3%. Gaussian aggregation is exact, so only M-dimensional
-SDPs are required. No manuscript is edited.
+For each design, compare the grouped granularity bound with the planted
+idiosyncratic share. Use Gaussian aggregation to solve the grouped
+population problems without constructing full firm-level covariances.
 """
 from __future__ import annotations
 import os
@@ -23,6 +22,13 @@ from mosek_face import licensed_mosek
 
 
 def block(n, exponent, m, reps, gamma_target, idio_sd, seed, mu_end):
+    """Solve population bounds for one size exponent and group count.
+
+    Sizes are proportional to i^-exponent. Idiosyncratic variances are
+    lognormal with cross-sectional mean one, and Gaussian loadings are
+    independent of size. At each draw and rank, scale the loadings to fix
+    the planted idiosyncratic share at gamma_target.
+    """
     sizes=power_law_sizes(n,exponent)
     buckets,loads=lpt_buckets(sizes**2,m)
     rng=np.random.default_rng([seed,int(round(1000*exponent)),m])

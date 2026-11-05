@@ -81,7 +81,7 @@ def check_outputs(names: set[str], since: Path | None = None) -> None:
 
 
 def collect_outputs(names: set[str]) -> None:
-    """Keep only paper artifacts in output/ and retain other generated files in the cache."""
+    """Keep paper figures, tables, and run reports in output/; move other files to the cache."""
     INTERMEDIATES.mkdir(parents=True, exist_ok=True)
     for item in OUTPUT.iterdir():
         if item.name in names or item.name in RUN_FILES:
@@ -95,7 +95,7 @@ def collect_outputs(names: set[str]) -> None:
 
 
 def sync_outputs(manuscript: Path, names: set[str]) -> None:
-    """Replace the manuscript's output directory after preparing every artifact."""
+    """Replace the manuscript's output folder with the checked figures and tables."""
     parent = manuscript.resolve().parent
     destination = parent / "output"
     if destination.is_symlink() or destination.resolve() == OUTPUT.resolve():

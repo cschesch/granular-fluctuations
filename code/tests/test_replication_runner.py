@@ -1,6 +1,7 @@
 """Partial, strict and failed runs must remain distinguishable from completed runs."""
 
 import contextlib
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -23,7 +24,7 @@ class ReplicationStatusTests(unittest.TestCase):
         self.output = self.root / "output"
         self.cache = self.code / ".cache/run_outputs"
         self.report = self.output / "run_report.json"
-        for name, value in (("CODE_DIR", self.code), ("OUT", self.output), ("CACHE", self.cache)):
+        for name, value in (("ROOT", self.root), ("CODE_DIR", self.code), ("OUT", self.output), ("CACHE", self.cache)):
             patcher = patch.object(runner, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -71,19 +72,102 @@ class ReplicationStatusTests(unittest.TestCase):
         self.assertEqual(report["status"], "complete")
         self.assertEqual(report["analyses"][0]["commands"][0]["returncode"], 0)
 
+    def test_report_is_current_during_commands_and_history_survives_next_run(self):
+        self.output.mkdir()
+        self.report.write_text('{"status": "complete"}')
+        snapshots = []
+
+        def inspect_report(command, log):
+            current = json.loads(self.report.read_text())
+            snapshots.append(current)
+            self.assertEqual(current["status"], "running")
+            history = log.parent / "run_report.json"
+            self.assertEqual(current, json.loads(history.read_text()))
+            return dict(returncode=0, skipped=[], log=str(log))
+
+        analyses = [runner.Analysis(name, ((name,),)) for name in ("first", "second")]
+        with patch.object(runner, "run", side_effect=inspect_report):
+            _, complete = self.execute(analyses)
+        self.assertEqual([r["status"] for r in snapshots[0]["analyses"]], ["running", "not_run"])
+        self.assertEqual([r["status"] for r in snapshots[1]["analyses"]], ["completed", "running"])
+        history = next((self.cache / "logs").glob("*/run_report.json"))
+        self.assertEqual(complete, json.loads(history.read_text()))
+        self.execute([runner.Analysis("missing", (), (self.root / "missing",))])
+        self.assertEqual(complete, json.loads(history.read_text()))
+        self.assertEqual(len(list((self.cache / "logs").glob("*/run_report.json"))), 2)
+
+    def test_interruption_leaves_completed_and_pending_analyses_distinct(self):
+        good = dict(returncode=0, skipped=[])
+        analyses = [runner.Analysis(name, ((name,),)) for name in ("first", "stopped", "later")]
+        with patch.object(runner, "run", side_effect=[good, KeyboardInterrupt("stopped")]):
+            with self.assertRaises(KeyboardInterrupt):
+                self.execute(analyses)
+        report = json.loads(self.report.read_text())
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual([r["status"] for r in report["analyses"]], ["completed", "failed", "not_run"])
+
+    def test_report_replacement_failure_preserves_previous_json(self):
+        self.output.mkdir()
+        self.report.write_text('{"status": "running"}\n')
+        with patch.object(runner.os, "replace", side_effect=OSError("replacement failed")):
+            with self.assertRaises(OSError):
+                runner.write_report({"status": "complete"}, self.report)
+        self.assertEqual(json.loads(self.report.read_text()), {"status": "running"})
+        self.assertEqual(list(self.output.iterdir()), [self.report])
+
+    def test_code_revision_uses_git_or_release_manifest(self):
+        (self.root / ".git").mkdir()
+        with patch.object(runner.subprocess, "run") as git:
+            git.return_value.stdout = "abc123\n"
+            self.assertEqual(runner.code_revision(), {"git_revision": "abc123"})
+        (self.root / ".git").rmdir()
+        contents = b"release checksum list\n"
+        (self.root / "SHA256SUMS").write_bytes(contents)
+        self.assertEqual(runner.code_revision(),
+                         {"release_manifest_sha256": hashlib.sha256(contents).hexdigest()})
+        (self.root / ".git").mkdir()
+        for error in (FileNotFoundError("git"), runner.subprocess.CalledProcessError(128, "git")):
+            with patch.object(runner.subprocess, "run", side_effect=error):
+                self.assertEqual(runner.code_revision(),
+                                 {"release_manifest_sha256": hashlib.sha256(contents).hexdigest()})
+
     def test_stella_missing_software_skips_but_locator_errors_fail(self):
         analysis = runner.Analysis("Stella", ())
         with patch.object(runner, "find_program", return_value=None), \
+                patch("applications.foerster.prepare.prepared_ready", return_value=True), \
                 patch("network_solver.find_gensys", return_value=self.root), \
                 patch("applications.stella.prepare_stella_sales.locate_x13", return_value=self.root):
             code, report = self.execute([analysis])
             self.assertEqual((code, report["status"]), (0, "partial"))
             self.assertIn("Octave", report["analyses"][0]["reasons"][0])
             self.assertEqual(self.execute([analysis], strict=True)[0], 2)
-        with patch("network_solver.find_gensys", side_effect=ValueError("invalid metadata")):
+        with patch("applications.foerster.prepare.prepared_ready", return_value=True), \
+                patch("network_solver.find_gensys", side_effect=ValueError("invalid metadata")):
             with self.assertRaisesRegex(ValueError, "invalid metadata"):
                 self.execute([analysis])
         self.assertEqual(json.loads(self.report.read_text())["status"], "failed")
+
+    def test_unvalidated_foerster_cache_blocks_both_consumers(self):
+        for name in ("Foerster", "Stella"):
+            with self.subTest(name=name), \
+                    patch("applications.foerster.prepare.prepared_ready", return_value=False), \
+                    patch.object(runner, "run") as run:
+                code, report = self.execute([runner.Analysis(name, (("must_not_run",),))])
+                self.assertEqual((code, report["status"]), (0, "partial"))
+                self.assertIn("preparation record", report["analyses"][0]["reasons"][0])
+                run.assert_not_called()
+
+    def test_unvalidated_atalay_cache_blocks_estimation(self):
+        from applications.atalay import prepare
+
+        for name, check in (("Atalay", "benchmark_ready"),
+                            ("Atalay elasticity profile", "profile_ready"),
+                            ("Atalay calibration comparison", "fits_ready")):
+            with self.subTest(name=name), patch.object(prepare, check, return_value=False), \
+                    patch.object(runner, "run") as run:
+                code, report = self.execute([runner.Analysis(name, (("must_not_run",),))])
+                self.assertEqual((code, report["status"]), (0, "partial"))
+                run.assert_not_called()
 
     def test_strict_artifact_check_rejects_a_partial_section_set(self):
         self.output.mkdir()

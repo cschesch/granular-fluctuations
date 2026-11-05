@@ -80,10 +80,7 @@ def _fmt(x: float, decimals: int) -> str:
 
 
 def _align(cells: list[str]) -> list[str]:
-    """Left-pad with \\phantom{0} so that a right-aligned column lines up on the
-    decimal point without pulling in siunitx or dcolumn: every entry already has
-    the same number of digits after the point, so only the integer part differs.
-    """
+    """Pad integer parts with invisible zeros to align decimal points."""
     width = max((c.find(".") for c in cells if "." in c), default=0)
     out = []
     for cell in cells:

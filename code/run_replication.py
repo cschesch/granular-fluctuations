@@ -1,6 +1,7 @@
 """Run the analyses behind the paper's tables and figures."""
 
 import argparse
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ import re
 import resource
 import subprocess
 import sys
+from tempfile import NamedTemporaryFile
 import time
 
 from project_paths import CODE_DIR, DERIVED_CACHE, ROOT, find_program
@@ -278,6 +280,20 @@ def requested_analyses(sections, section):
 
 def missing_requirements(analysis):
     reasons = [f"Missing input: {path}" for path in analysis.inputs if not path.exists()]
+    if analysis.name in ("Foerster", "Stella") and not reasons:
+        from applications.foerster.prepare import prepared_ready
+
+        if not prepared_ready():
+            reasons.append("Foerster prepared inputs do not match their preparation record; rerun applications.foerster.prepare.")
+    if analysis.name in ("Atalay", "Atalay elasticity profile", "Atalay calibration comparison") and not reasons:
+        from applications.atalay import prepare
+
+        valid = (prepare.benchmark_ready() if analysis.name == "Atalay"
+                 else all(prepare.profile_ready(sweep) for sweep in ("eps_M", "eps_Q"))
+                 if analysis.name == "Atalay elasticity profile"
+                 else all(prepare.fits_ready(tag) for tag, _ in prepare.SURFACE_VALUES))
+        if not valid:
+            reasons.append("Atalay prepared inputs do not match their preparation record; rerun applications.atalay.prepare.")
     # Other external-tool preparers report their own availability. Stella needs
     # both tools before starting its multi-command reconstruction.
     if analysis.name == "Stella" and not reasons:
@@ -294,14 +310,52 @@ def missing_requirements(analysis):
     return reasons
 
 
+def code_revision():
+    """Identify the checkout, release manifest, or unversioned source tree."""
+    if (ROOT / ".git").exists():
+        try:
+            result = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                                    capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            pass
+        else:
+            return {"git_revision": result.stdout.strip()}
+    manifest = ROOT / "SHA256SUMS"
+    if manifest.is_file():
+        return {"release_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest()}
+    from verify_release import files, sha256
+
+    contents = "".join(f"{sha256(path)}  {name}\n"
+                       for name, path in files(CODE_DIR.parent, "code").items())
+    return {"source_sha256": hashlib.sha256(contents.encode()).hexdigest()}
+
+
+def write_report(report, *paths):
+    """Replace each report atomically so readers always see complete JSON."""
+    contents = json.dumps(report, indent=2) + "\n"
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(mode="w", dir=path.parent, prefix=f".{path.name}.", delete=False) as stream:
+            temporary = Path(stream.name)
+            try:
+                stream.write(contents)
+                stream.flush()
+                os.fsync(stream.fileno())
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+
 def execute(analyses, report_path, *, strict=False, input_mode="paper"):
+    analyses = list(analyses)
     OUT.mkdir(parents=True, exist_ok=True)
     logs = CACHE / "logs" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     logs.mkdir(parents=True)
     input_log = logs / "inputs.jsonl"
     os.environ["REPLICATION_INPUT_LOG"] = str(input_log)
     report = dict(
-        started=datetime.now(timezone.utc).isoformat(), input_mode=input_mode, strict=strict,
+        started=datetime.now(timezone.utc).isoformat(), status="running", input_mode=input_mode, strict=strict,
+        code_revision=code_revision(),
         python=sys.version, platform=platform.platform(),
         thread_settings={key: os.environ.get(key) for key in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS")},
         numerical_checks="Not run; use make check-results separately.",
@@ -310,8 +364,12 @@ def execute(analyses, report_path, *, strict=False, input_mode="paper"):
     )
     started = time.monotonic()
     exit_code = 0
+    history = logs / "run_report.json"
+    write_report(report, report_path, history)
     try:
         for index, ((section, analysis), record) in enumerate(zip(analyses, report["analyses"], strict=True)):
+            record["status"] = "running"
+            write_report(report, report_path, history)
             print(f"[{section}] {analysis.name}", flush=True)
             for path in (*analysis.inputs, *analysis.optional_inputs):
                 print(f"[input] {path}", flush=True)
@@ -349,6 +407,7 @@ def execute(analyses, report_path, *, strict=False, input_mode="paper"):
                     break
             if record["status"] == "running":
                 record["status"] = "completed"
+            write_report(report, report_path, history)
             if exit_code:
                 break
     except BaseException as error:
@@ -370,8 +429,7 @@ def execute(analyses, report_path, *, strict=False, input_mode="paper"):
         report["status"] = ("failed" if any(r["status"] == "failed" for r in report["analyses"])
                             else "complete" if all(r["status"] == "completed" for r in report["analyses"])
                             else "partial")
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, indent=2) + "\n")
+        write_report(report, report_path, history)
         print(f"\n{report['status'].upper()} run of requested analyses: {report_path}", flush=True)
         for row in report["analyses"]:
             print(f"  {row['status']}: {row['name']}", flush=True)

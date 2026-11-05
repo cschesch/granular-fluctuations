@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Sensitivity of the grouped-MGP share to the bucket count M (draft M-sweep figure).
+"""Plot the sensitivity of granularity bounds to the number of groups.
 
-For the long monthly/daily panels, regroup by LPT at every bucket count from
-M=5 to M=floor(sqrt(T)), solve the grouped MGP, and plot the share with its
-90% moving-block gradient-bootstrap interval. The point is that the Table 1
-ceilings are not artifacts of the baseline design: the share declines gently
-toward the finest defensible grouping. Each interval uses 1,000 draws by
-default and therefore remains valid when the value function is non-regular.
+For monthly and daily panels, repeat LPT grouping and estimation for
+M = 5, ..., floor(sqrt(T)). Report point estimates and 90% moving-block
+gradient-bootstrap intervals.
 
-Writes ../output/msweep_combined.pdf and the cached msweep_shares.csv.
+Write output/msweep_combined.pdf and cache the estimates.
 """
 
 from __future__ import annotations

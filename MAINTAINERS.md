@@ -34,5 +34,7 @@ This is separate from replication and does not edit the manuscript.
 
 Keep fast, numerical and source-specific tests discoverable. CI installs the
 pinned environment in a clean Python 3.11 checkout, then runs fast/numerical
-checks and the synthetic smoke test. Record measured settings and limitations
+checks and the synthetic smoke test. A separate job checks file integrity and
+rebuilds the public point-estimate references with reduced bootstrap settings.
+Record measured settings and limitations
 in `code/REPRODUCIBILITY.md`; do not label smoke timings as full-paper runtimes.

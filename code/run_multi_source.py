@@ -1,21 +1,9 @@
 #!/usr/bin/env python3
-"""Grouped-MGP estimates on the non-quarterly data sources for draft Table 1.
+"""Estimate granularity bounds for the core non-network applications.
 
-Datasets, each saved as a summary under ``.cache/run_outputs/``:
-  - Compustat annual sales and annual employment over the last 50 years.
-  - Gabaix-style Compustat labor productivity, annually (sales/employees) and
-    quarterly (quarterly sales/annual employees).
-  - BLS CES employment leaves, made additive by synthetic residual nodes, at M=10.
-  - BLS CPI item inflation leaves with December 1967 weights,
-    made additive by synthetic residual nodes, at M=10.
-  - CRSP daily stock returns over the last 20*252 trading days, at M=30.
-  - Forbes/Internet Archive daily billionaire wealth growth over the full
-    2019--2025 archived real-time panel, at M=30.
-
-The common estimator is the paper's weighted-contribution grouping,
-``x_{m,t} = sum_{i in B_m} S_i y_{i,t}``, so the grouped MGP is the unweighted
-fixed-M SDP. The estimation core is imported from ``mgp_core.py``; each panel
-gets its own deterministic random stream so a single run reproduces every row.
+Load the selected Compustat, BLS, CRSP, and Forbes panels, group units
+by squared size shares, and compute estimates and bootstrap intervals.
+Each panel uses a reproducible random stream independent of run order.
 """
 
 from __future__ import annotations
@@ -125,6 +113,11 @@ def run_panel(
     gradient_rng: np.random.Generator,
     progress_every: int,
 ) -> dict[str, object]:
+    """Estimate a panel's bound and moving-block bootstrap intervals.
+
+    Group weighted contributions ``x_m,t = sum_{i in B_m} S_i y_i,t`` and
+    solve the unweighted SDP on the grouped observations.
+    """
     if panel.weight_timing != WEIGHT_TIMING:
         raise ValueError(
             f"{panel.name} has weight_timing={panel.weight_timing!r}; expected {WEIGHT_TIMING!r}."

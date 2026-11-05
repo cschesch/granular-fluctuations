@@ -1,10 +1,12 @@
 # Figures and tables
 
-Numbers refer to the current manuscript. All files below are written under
-`output/`. Run `make all` for the dependencies, or use the section commands in
-[Code](README.md). Producer modules are run with `python -m MODULE` from `code/`;
-plotting modules read the estimates prepared earlier by the section runner.
-Output filenames are retained so existing manuscript references still work.
+This table maps the paper's figures and tables to output files and producer
+modules. All output paths are relative to the repository root.
+
+From the repository root, run `make -C code PYTHON=python all`, or use the
+section commands in [Code](README.md). Individual modules run with
+`python -m MODULE` from `code/`; plotting modules may require estimates
+produced by earlier steps. Files listed below are written under `output/`.
 
 | Figure/table | Description | Output file | Producer module |
 | --- | --- | --- | --- |
@@ -39,4 +41,4 @@ Output filenames are retained so existing manuscript references still work.
 
 Figures B.1 and C.1 are drawn directly in the manuscript and have no external
 generated file. `run_inference_mc` produces the simulation estimates used by
-`plot_inference_mc` and `plot_inference_tightness`.
+`plot_inference_mc`; `plot_inference_tightness` computes its own population grid.

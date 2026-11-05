@@ -1,21 +1,11 @@
 #!/usr/bin/env python3
-"""Grouped-MGP estimate on quarterly Compustat sales growth (draft column 1 + Figure 1).
+"""Estimate granularity bounds for quarterly U.S. Compustat sales growth.
 
-Pipeline:
+Prepare the balanced panel, apply seasonal adjustment and LPT grouping,
+and run the inference calculations selected by the run profile.
 
-1. Load quarterly Compustat USA data.
-2. Keep domestic firms, drop oil/energy/finance SICs, and use positive sales.
-3. Build quarterly log sales growth, remove unit quarter effects, and keep the
-   last contiguous panel.
-4. Choose the window (default: trailing 100 quarters ending 2025Q4).
-5. Group firms by LPT on S_i^2 and solve the grouped MGP.
-6. Run the time bootstrap and moving-block bootstrap of the grouped observations.
-
-Outputs are written as flat files in ``../output/`` (overwritten each run). The
-LPT squared-bucket-size plot saved there is the draft's Figure 1.
-
-The estimation core (LPT, dual SDP, share, resampling, plotting) lives in
-``mgp_core.py`` and is shared with ``run_multi_source.py``.
+Write figures to output/ and summaries and intermediate estimates to
+code/.cache/run_outputs/.
 """
 
 from __future__ import annotations

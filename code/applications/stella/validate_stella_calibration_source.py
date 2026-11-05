@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the unmodified deposited constructors on our reconstructed inputs."""
+"""Run the unmodified deposited customer-network constructor on our reconstructed inputs."""
 
 from __future__ import annotations
 
@@ -52,31 +52,20 @@ def validate(directory: Path, octave: str, *, export_inputs: bool = False) -> di
         shutil.copyfile(OFFICIAL_SURPLUS, work / "valadd.csv")
         np.savetxt(work / "tid.csv", tid, delimiter=",", fmt="%.17g")
         np.savetxt(work / "comp_data.csv", comp_data, delimiter=",", fmt="%.17g")
-        for calibration, filename in (("sparse", "matrix_construction_IIcalibration.m"),
-                                      ("dense", "matrix_construction_Icalibration.m")):
-            source = OFFICIAL / "filtering" / filename
-            source_files.append(source)
-            subprocess.run([octave, "-qf", str(source)], cwd=work, check=True,
-                           text=True, capture_output=True, timeout=300)
-            expected = np.loadtxt(work / "matrix_io.csv", delimiter=",")
-            if calibration == "sparse":
-                actual = np.loadtxt(directory / "matrix_io.csv", delimiter=",")
-            else:
-                actual = pd.read_csv(directory / "matrix_io_dense_economic_labeled.csv", index_col=0).to_numpy(float)
-                actual = np.where(actual == 0, 1e-19, actual)
-            results.append({"calibration": calibration, "matrix": "matrix_io",
+        source = OFFICIAL / "filtering" / "matrix_construction_IIcalibration.m"
+        source_files.append(source)
+        subprocess.run([octave, "-qf", str(source)], cwd=work, check=True,
+                       text=True, capture_output=True, timeout=300)
+        for matrix in ("matrix_io", "alpha", "matrix_capital"):
+            expected = np.loadtxt(work / f"{matrix}.csv", delimiter=",")
+            actual = np.loadtxt(directory / f"{matrix}.csv", delimiter=",")
+            results.append({"calibration": "customer", "matrix": matrix,
                             "N": n, "max_abs_difference": float(np.max(np.abs(expected - actual)))})
-            for matrix in ("alpha", "matrix_capital"):
-                expected = np.loadtxt(work / f"{matrix}.csv", delimiter=",")
-                actual = np.loadtxt(directory / f"{matrix}.csv", delimiter=",")
-                results.append({"calibration": calibration, "matrix": matrix,
-                                "N": n, "max_abs_difference": float(np.max(np.abs(expected - actual)))})
-    payload = {"claim": "Unmodified deposited MATLAB sparse and dense constructors executed under Octave on reconstructed inputs",
+    payload = {"claim": "Unmodified deposited MATLAB customer-network constructor executed under Octave on reconstructed inputs",
                "calibration_directory": str(directory.relative_to(ROOT)), "N": n,
                "source_hashes": file_fingerprints(source_files, ROOT),
                "input_hashes": file_fingerprints([directory / name for name in
-                    ("firm_mapping.csv", "firm_employment_ratios.csv", "matrix_io.csv",
-                     "matrix_io_dense_economic_labeled.csv")], ROOT),
+                    ("firm_mapping.csv", "firm_employment_ratios.csv", "matrix_io.csv")], ROOT),
                "matrices": results, "all_pass": all(row["max_abs_difference"] < 1e-12 for row in results),
                "scope": "Validates constructor execution, not the identity or vintage of reconstructed firm/customer/BLS inputs"}
     if not payload["all_pass"]:
@@ -90,7 +79,7 @@ def main() -> None:
     parser.add_argument("--octave")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--export-inputs", action="store_true",
-                        help="save private headerless inputs for the untouched deposited constructors")
+                        help="save private headerless inputs for the untouched deposited customer-network constructor")
     args = parser.parse_args()
     octave = find_program("octave", args.octave)
     if octave is None:

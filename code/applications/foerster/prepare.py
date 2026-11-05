@@ -7,6 +7,8 @@ The existing Octave/Sims solver implements Models_98.gss and Resolkw_98.gss.
 """
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import ast
 import hashlib
 import json
 
@@ -24,6 +26,74 @@ OUTPUTS = (
     f"{STEM}_wide.csv", f"{STEM}_columns.csv", "l4wq_q_98_0_1972_2007.csv",
     "pii_a_98_benchmark.csv", "xi_98_benchmark.csv", "cap_rho_98_benchmark.csv",
 )
+SOURCE_INPUTS = ("Data/IO98.xls", "Data/CapFlow98.xls", "Data/IP98.xls")
+MODEL_FILES = ("matrix_io.csv", "alpha.csv", "matrix_capital.csv")
+GENSYS_FILES = ("gensys.m", "qzdiv.m", "qzswitch.m")
+
+
+def file_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def code_hash(path: Path) -> str:
+    """Ignore Python comments and docstrings when checking calculation code."""
+    if path.suffix != ".py":
+        return file_hash(path)
+    tree = ast.parse(path.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if (node.body and isinstance(node.body[0], ast.Expr)
+                    and isinstance(node.body[0].value, ast.Constant)
+                    and isinstance(node.body[0].value.value, str)):
+                node.body.pop(0)
+    return hashlib.sha256(ast.dump(tree).encode()).hexdigest()
+
+
+def input_fingerprint(source: Path) -> dict:
+    return {
+        "inputs": {name: file_hash(source / name) for name in SOURCE_INPUTS},
+        "code": {str(path.relative_to(CODE_DIR)): code_hash(path)
+                 for path in (Path(__file__), CODE_DIR / "network_solver.py",
+                              CODE_DIR / "network_dynamic_solver.m")},
+    }
+
+
+def output_fingerprint(model_inputs: Path, exports: Path) -> dict:
+    return {
+        **{f"model_inputs/{name}": file_hash(model_inputs / name) for name in MODEL_FILES},
+        **{f"exports/{name}": file_hash(exports / name) for name in OUTPUTS},
+    }
+
+
+def gensys_fingerprint(directory: Path) -> dict:
+    return {name: file_hash(directory / name) for name in GENSYS_FILES}
+
+
+def prepared_ready(source: Path | None = None) -> bool:
+    """Validate prepared inputs and exports without requiring Octave or Dynare."""
+    try:
+        recorded = json.loads((CACHE / "preparation.json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+    if (not isinstance(recorded, dict) or not isinstance(recorded.get("gensys"), dict)
+            or set(recorded["gensys"]) != set(GENSYS_FILES)):
+        return False
+    try:
+        fingerprint = input_fingerprint(source if source is not None else upstream("foerster2011"))
+        outputs = output_fingerprint(MODEL_INPUTS, EXPORTS)
+    except FileNotFoundError:
+        return False
+    if (any(recorded.get(key) != value for key, value in fingerprint.items())
+            or recorded.get("outputs") != outputs):
+        return False
+    from network_solver import find_gensys
+
+    try:
+        gensys = find_gensys()
+    except FileNotFoundError:
+        return True
+    return all(recorded["gensys"][name] == file_hash(gensys / name)
+               for name in GENSYS_FILES if (gensys / name).is_file())
 
 
 def structural_inputs(source: Path):
@@ -69,37 +139,64 @@ def industrial_production(source: Path):
 
 
 def prepare() -> bool:
+    if prepared_ready():
+        print("[foerster] reused validated preparation", flush=True)
+        return True
     source = upstream("foerster2011")
-    if not (source / "Data/IP98.xls").is_file():
+    if not all((source / name).is_file() for name in SOURCE_INPUTS):
         print("[skip] Foerster preparation: original publication archive is absent", flush=True)
         return False
     octave = find_program("octave")
     if octave is None:
         print("[skip] Foerster preparation: Octave is required to solve the deposited model", flush=True)
         return False
-    from network_solver import find_gensys, run_solver
+    from network_solver import find_gensys
 
     try:
         gensys = find_gensys()
+        gensys_files = gensys_fingerprint(gensys)
     except FileNotFoundError:
-        print("[skip] Foerster preparation: install Dynare or set GENSYS_DIR to the directory containing gensys.m", flush=True)
+        print("[skip] Foerster preparation: install Dynare or set GENSYS_DIR to the directory containing gensys.m, qzdiv.m and qzswitch.m", flush=True)
         return False
-    fingerprint = dict(source=str(source), files={
-        str(path.relative_to(CODE_DIR)): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (Path(__file__), CODE_DIR / "network_solver.py", CODE_DIR / "network_dynamic_solver.m")
-    }, gensys_sha256=hashlib.sha256((gensys / "gensys.m").read_bytes()).hexdigest())
+    fingerprint = input_fingerprint(source)
+    fingerprint["gensys"] = gensys_files
+    CACHE.mkdir(parents=True, exist_ok=True)
     stamp = CACHE / "preparation.json"
-    if stamp.is_file() and json.loads(stamp.read_text()) == fingerprint and all((EXPORTS / name).is_file() for name in OUTPUTS):
-        return True
-    MODEL_INPUTS.mkdir(parents=True, exist_ok=True)
-    EXPORTS.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".prepare-", dir=CACHE) as temporary:
+        staging = Path(temporary)
+        model_inputs, exports = staging / "model_inputs", staging / "exports"
+        model_inputs.mkdir()
+        exports.mkdir()
+        quarters, sectors = write_preparation(source, model_inputs, exports, octave, gensys)
+        if (input_fingerprint(source) != {key: fingerprint[key] for key in ("inputs", "code")}
+                or gensys_fingerprint(gensys) != fingerprint["gensys"]):
+            raise RuntimeError("Foerster source or calculation code changed during preparation")
+        fingerprint["outputs"] = output_fingerprint(model_inputs, exports)
+        staged_stamp = staging / "preparation.json"
+        staged_stamp.write_text(json.dumps(fingerprint, indent=2) + "\n")
+        MODEL_INPUTS.mkdir(parents=True, exist_ok=True)
+        EXPORTS.mkdir(parents=True, exist_ok=True)
+        # No valid stamp may survive a partially completed promotion.
+        stamp.unlink(missing_ok=True)
+        for staged, destination in ((model_inputs, MODEL_INPUTS), (exports, EXPORTS)):
+            for path in staged.iterdir():
+                path.replace(destination / path.name)
+        staged_stamp.replace(stamp)
+    print(f"[foerster] prepared {quarters} quarters and {sectors} sectors", flush=True)
+    return True
+
+
+def write_preparation(source: Path, model_inputs: Path, exports: Path,
+                      octave: str, gensys: Path) -> tuple[int, int]:
+    from network_solver import run_solver
+
     for name, matrix in zip(("matrix_io", "alpha", "matrix_capital"), structural_inputs(source), strict=True):
-        np.savetxt(MODEL_INPUTS / f"{name}.csv", matrix, delimiter=",", fmt="%.17g")
-    run_solver(MODEL_INPUTS, EXPORTS, octave, gensys)
+        np.savetxt(model_inputs / f"{name}.csv", matrix, delimiter=",", fmt="%.17g")
+    run_solver(model_inputs, exports, octave, gensys)
     calendar, levels, weights, labels = industrial_production(source)
-    pii = np.loadtxt(EXPORTS / "pii_a.csv", delimiter=",")
-    xi = np.loadtxt(EXPORTS / "xi.csv", delimiter=",")
-    rho = np.loadtxt(EXPORTS / "cap_rho.csv", delimiter=",")
+    pii = np.loadtxt(exports / "pii_a.csv", delimiter=",")
+    xi = np.loadtxt(exports / "xi.csv", delimiter=",")
+    rho = np.loadtxt(exports / "cap_rho.csv", delimiter=",")
     inverse = np.linalg.inv(pii)
     growth = np.zeros_like(levels)
     growth[1:] = 400 * np.log(levels[1:] / levels[:-1])
@@ -109,14 +206,12 @@ def prepare() -> bool:
     shocks = np.zeros_like(levels)
     for t in range(1, len(shocks)):
         shocks[t] = forcing[t] + shocks[t - 1] @ autoregression.T
-    pd.DataFrame(np.column_stack([calendar, shocks]), columns=["cal", *labels.epsilon_column]).to_csv(EXPORTS / f"{STEM}_wide.csv", index=False)
-    labels.to_csv(EXPORTS / f"{STEM}_columns.csv", index=False)
-    np.savetxt(EXPORTS / "l4wq_q_98_0_1972_2007.csv", np.column_stack([calendar, weights]), delimiter=",", fmt="%.15g")
+    pd.DataFrame(np.column_stack([calendar, shocks]), columns=["cal", *labels.epsilon_column]).to_csv(exports / f"{STEM}_wide.csv", index=False)
+    labels.to_csv(exports / f"{STEM}_columns.csv", index=False)
+    np.savetxt(exports / "l4wq_q_98_0_1972_2007.csv", np.column_stack([calendar, weights]), delimiter=",", fmt="%.15g")
     for name, matrix in (("pii_a", pii), ("xi", xi), ("cap_rho", rho)):
-        np.savetxt(EXPORTS / f"{name}_98_benchmark.csv", matrix, delimiter=",", fmt="%.15g")
-    stamp.write_text(json.dumps(fingerprint, indent=2) + "\n")
-    print(f"[foerster] rebuilt {len(shocks)} quarters and {shocks.shape[1]} sectors", flush=True)
-    return True
+        np.savetxt(exports / f"{name}_98_benchmark.csv", matrix, delimiter=",", fmt="%.15g")
+    return shocks.shape
 
 
 if __name__ == "__main__":

@@ -1,41 +1,13 @@
 #!/usr/bin/env python3
-"""Homoskedastic grouped GIV with known or estimated loading spaces.
+"""Granular IV estimation with known or estimated factor-loading spaces.
 
-This module implements the fixed-dimensional procedure in Hahn, He, Liao and
-Zhou (2026, Algorithm 1), adapted to the whitened grouped system used in the
-paper.  If
+Implements joint GMM and scalar IV estimation for the homoskedastic
+whitened system. Standard errors for estimated spaces include the
+Hahn et al. generated-eigenspace correction; naive_se omits that correction
+as a separate diagnostic.
 
-    X_t = phi * p_t * b + B f_t + u_t,       Var(u_t) = sigma_u^2 I_M,
-
-then valid instruments are ``A' X_t``, where the columns of ``A`` span the
-orthogonal complement of ``[b, B]``.  Hahn et al. use ``b = 1``; the algebra is
-unchanged for a known nonzero direction ``b``.  The aggregate is ``y_t=d'X_t``
-and the reference outcome for the demand equation is
-``x_b,t = b'X_t/(b'b)``.
-
-The implementation deliberately keeps the oracle and feasible variance paths
-separate.  With a known loading space the ordinary GMM moment covariance is
-correct.  With an estimated space, the influence function contains Hahn et
-al.'s generated-eigenspace term.  The separate ``naive_se`` diagnostic keeps
-the feasible point estimate and its corrected optimal weight fixed, but forms
-the final sandwich as if the estimated space were known; it is never silently
-substituted for the feasible standard error.
-
-Two estimators share one instrument space. ``estimate_joint_giv`` implements
-Algorithm 1 with both equations, all residual directions, and cross-equation
-optimal weighting. ``scalar_iv`` collapses the space to the single
-aggregate-predicting direction ``P d``, where ``P = A A'`` is the projector
-onto the valid space and ``d`` carries the aggregate weights, and applies the
-ordinary IV ratio; that direction attains the information bound of the paper's
-grouping proposition, and with one moment there is no many-moment two-step
-bias.  Its standard error still carries the generated-eigenspace term when the
-space is estimated: the influence function of ``d'P_hat m_T`` is ``(P d)' xi_t``
-with Hahn et al.'s ``xi_t``, because the projector perturbation acts on the
-population moment ``E[X_t eps_t]``, which the true space annihilates.
-
-The module is intended for the Monte Carlo appendix, not for arbitrary
-diagonal heteroskedasticity: squared-size whitening produces spherical grouped
-errors only when the micro errors are homoskedastic.
+Squared-size whitening gives spherical grouped errors only when the
+underlying unit-level errors are homoskedastic.
 """
 
 from __future__ import annotations
@@ -296,12 +268,21 @@ def scalar_iv(
 ) -> EquationEstimate:
     """Just-identified IV with the scalar instrument ``z_t = weight' x_t``.
 
-    ``instruments`` is the ``T x K`` matrix whose rows are combined by
-    ``weight``.  With ``upsilon=None`` the weight is treated as known and the
+    ``instruments`` is a ``T x K`` matrix whose columns are combined by
+    ``weight``. With ``upsilon=None`` the weight is treated as known and the
     reported standard error is the ordinary heteroskedasticity-robust one.
     With ``upsilon`` the weight is ``P_hat d`` for an estimated eigenspace and
-    the standard error adds Hahn et al.'s generated-space term; ``naive_se``
-    then reports the fixed-weight value for comparison.
+    the standard error adds Hahn et al.'s generated-eigenspace term;
+    ``naive_se`` reports the fixed-weight value for comparison.
+
+    For aggregate weights ``d`` and the valid-space projector ``P = A A'``,
+    ``P d`` is the aggregate-predicting direction and attains the information
+    bound of the paper's grouping proposition. The estimate is the ordinary
+    IV ratio; with one moment there is no many-moment two-step bias.
+
+    For an estimated space, the influence function of ``d'P_hat m_T`` is
+    ``(P d)' xi_t`` with Hahn et al.'s ``xi_t``. The projector perturbation acts
+    on the population moment ``E[X_t eps_t]``, which the true space annihilates.
     """
 
     x = np.asarray(instruments, dtype=float)
@@ -374,13 +355,26 @@ def estimate_joint_giv(
     *,
     diagnostics: bool = True,
 ) -> GroupedGIVEstimate:
-    """Hahn et al. (2026), balanced-data Algorithm 1, Steps 2--6.
+    """Hahn, He, Liao and Zhou (2026), balanced-data Algorithm 1, Steps 2--6.
+
+    For the homoskedastic whitened system
+
+        X_t = phi * p_t * b + B f_t + u_t,  Var(u_t) = sigma_u^2 I_M,
+
+    the columns of ``A`` span the orthogonal complement of ``[b, B]`` and
+    ``A' X_t`` are valid instruments. The aggregate is ``y_t = d'X_t`` and the
+    reference outcome is ``x_b,t = b'X_t/(b'b)``. Hahn et al. use ``b = 1``;
+    whitened groups use a known nonzero ``b`` in the same algebra.
 
     Step 1's eigenspace and Upsilon are supplied in ``space``. Both equations
     use all K instruments and their cross-equation covariance. No ridge,
     pseudoinverse, separate-equation weight, or scalar-IV fallback is used.
-    For whitened groups, replace 1 by the known direction b and the equal
-    average by b'X/(b'b); the rest of the algorithm is unchanged.
+
+    With a known loading space, the ordinary GMM moment covariance applies.
+    With an estimated space, the influence function includes the
+    Hahn et al. generated-eigenspace term. ``naive_se`` keeps the feasible
+    point estimate and its corrected optimal weight fixed, but forms the
+    final sandwich as if the estimated space were known.
 
     ``diagnostics=False`` omits the condition number and uses equivalent
     symmetric products and early contractions to reduce memory and work.

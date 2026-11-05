@@ -16,7 +16,11 @@ RAW.mkdir(parents=True, exist_ok=True)
 
 
 def download_existing(connection, name, sql, params=None):
-    """Stream one read-only query, retaining its exact SQL and provenance."""
+    """Stream a read-only SQL query through an existing database connection.
+
+    ``name`` sets the output filename prefix; ``params`` binds query parameters.
+    Save the extract with its SQL, parameters, and checksum, and return its path.
+    """
     stamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%S%fZ')
     target = RAW / f'{name}_{stamp}.csv.gz'
     partial = target.with_suffix(target.suffix + '.partial')

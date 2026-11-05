@@ -9,7 +9,7 @@ Raw CPI-U price indexes and December expenditure weights from the
   1987–1989 bridge text files, 1990–2019 archives and 2020–2025 workbooks.
 
 `make -C code applications` runs the four builders in
-`code/applications/bls_cpi/`. They combine the source histories, match item
+[code/applications/bls_cpi/](../../code/applications/bls_cpi/). They combine the source histories, match item
 codes, and construct an additive hierarchy using residual components where
 necessary. The paper panel uses December 1967 weights and seasonally adjusted
 monthly prices from January 1968 through September 2025.

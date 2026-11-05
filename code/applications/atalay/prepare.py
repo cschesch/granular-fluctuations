@@ -6,7 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, mkdtemp
 from zipfile import ZipFile
 
 import numpy as np
@@ -24,6 +24,114 @@ HERE = Path(__file__).resolve().parent
 STATA_FILES = ("dataKJ.csv", "dataMJ.csv", "dataOJ.csv", "ioJ_data_dt.csv")
 SOURCE_VERSION = 1  # Increment when the Stata adaptation changes, not for plotting edits.
 SURFACE_VALUES = ((667, "2/3"), (999, "0.999"), (1333, "4/3"))
+BENCHMARK_EPS_M = 0.1
+BENCHMARK_FORMAT = "%.15g"
+FILTER_CODE = ("filter_full.m", "kfilter.m", "factoran_.m", "statsfminbx_.m")
+FIT_CODE = ("factoran_.m", "statsfminbx_.m")
+# Bump only the affected stage for Python calculation changes (e.g. benchmark
+# CSV transformation). MATLAB code and numerical settings are hashed separately.
+PREPARATION_VERSIONS = {"benchmark": 1, "profile": 1, "surface": 1, "fits": 1}
+
+
+def file_hash(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def stage_inputs(stage, key=""):
+    """Bind each preparation stage to its inputs, computation and settings."""
+    scripts = {"benchmark": "export_atalay_elasticity_profile.m",
+               "profile": "export_atalay_elasticity_profile.m",
+               "surface": "export_atalay_elasticity_surface.m", "fits": "fit_surface.m"}
+    settings = {"benchmark": {"sweep": "eps_M", "grid": [BENCHMARK_EPS_M], "csv_format": BENCHMARK_FORMAT},
+                "profile": {"sweep": str(key), "grid": "exporter default"},
+                "surface": {"eps_D": dict(SURFACE_VALUES).get(key), "grid": "exporter default"},
+                "fits": {"tag": str(key), "options": "fit_surface.m"}}[stage]
+    inputs = {"stage": stage, "key": str(key), "preparation_version": PREPARATION_VERSIONS[stage],
+              "archive_sha256": file_hash(ARCHIVE),
+              "source": source_record(), "settings": settings,
+              "script_sha256": file_hash(HERE / scripts[stage]),
+              "package_code": {name: file_hash(WORK / name)
+                               for name in (FIT_CODE if stage == "fits" else FILTER_CODE)}}
+    if stage == "fits":
+        inputs["surface_inputs"] = stage_inputs("surface", key)
+        inputs["surface_sha256"] = file_hash(
+            DERIVED / "elasticity_surface" / f"atalay_surface_epsD_{key}.mat")
+    return inputs
+
+
+def stage_marker(stage, key=""):
+    return DERIVED / "stages" / f"{stage}{'_' + str(key) if key != '' else ''}.json"
+
+
+def read_stage(stage, key=""):
+    path = stage_marker(stage, key)
+    try:
+        recorded = json.loads(path.read_text())
+        return recorded if isinstance(recorded, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def stage_current(stage, key="", *, complete=True):
+    recorded = read_stage(stage, key)
+    if not recorded or (complete and not recorded.get("complete")):
+        return False
+    try:
+        return recorded.get("inputs") == stage_inputs(stage, key)
+    except FileNotFoundError:
+        return False
+
+
+def stage_outputs(stage, key=""):
+    if stage == "benchmark":
+        return [DERIVED / "benchmark", *(DERIVED / f"atalay_benchmark_{stem}.csv"
+                for stem in ("productivity_shocks", "network_variance_matrix"))]
+    if stage == "profile":
+        return [DERIVED / "elasticity_profile" / str(key)]
+    directory = DERIVED / "elasticity_surface"
+    if stage == "surface":
+        path = directory / f"atalay_surface_epsD_{key}.mat"
+        return [path, path.with_name(path.name + ".partial.mat")]
+    path = directory / f"one_factor_{key}.csv"
+    return [path, path.with_name(path.name + ".partial")]
+
+
+def write_stage(stage, key, inputs, complete):
+    path = stage_marker(stage, key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.partial")
+    temporary.write_text(json.dumps({"inputs": inputs, "complete": complete}, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def begin_stage(stage, key=""):
+    """Resume matching work; preserve unverified or stale checkpoints before starting."""
+    inputs = stage_inputs(stage, key)
+    if read_stage(stage, key).get("inputs") != inputs:
+        previous = [path for path in (*stage_outputs(stage, key), stage_marker(stage, key))
+                    if path.exists()]
+        if previous:
+            superseded = DERIVED / "superseded"
+            superseded.mkdir(parents=True, exist_ok=True)
+            backup = Path(mkdtemp(prefix=f"{stage}_{key or 'default'}_", dir=superseded))
+            for path in previous:
+                target = backup / path.relative_to(DERIVED)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                path.rename(target)
+            print(f"Atalay: preserved earlier {stage} {key} in {backup}", flush=True)
+    write_stage(stage, key, inputs, complete=False)
+    return inputs
+
+
+def finish_stage(stage, key, inputs):
+    checks = {"benchmark": _benchmark_valid, "profile": _profile_valid,
+              "surface": _surface_valid, "fits": _fits_valid}
+    valid = checks[stage]() if stage == "benchmark" else checks[stage](key)
+    if not valid:
+        raise RuntimeError(f"Atalay {stage} {key} is incomplete; inspect its prepared outputs.")
+    if stage_inputs(stage, key) != inputs:
+        raise RuntimeError(f"Atalay {stage} {key} inputs changed during preparation.")
+    write_stage(stage, key, inputs, complete=True)
 
 
 def adapted_stata_source():
@@ -100,24 +208,41 @@ def run_matlab(program, statements):
 
 
 def benchmark_ready():
-    return all((DERIVED / f"atalay_benchmark_{stem}.csv").is_file()
-               for stem in ("productivity_shocks", "network_variance_matrix"))
+    return stage_current("benchmark") and _benchmark_valid()
+
+
+def _benchmark_valid():
+    shocks = DERIVED / "atalay_benchmark_productivity_shocks.csv"
+    matrix = DERIVED / "atalay_benchmark_network_variance_matrix.csv"
+    if not shocks.is_file() or not matrix.is_file():
+        return False
+    frame = pd.read_csv(shocks)
+    variance = np.loadtxt(matrix, delimiter=",")
+    return (list(frame) == ["year", *(f"shock_{i:02d}" for i in range(1, 31))]
+            and len(frame) > 0 and np.isfinite(frame.to_numpy()).all()
+            and variance.shape == (30, 30) and np.isfinite(variance).all())
 
 
 def prepare_benchmark(program):
+    inputs = begin_stage("benchmark")
     run_matlab(program, (
-        "ATALAY_SWEEP='eps_M'; ATALAY_PROFILE_GRID=0.1; "
+        f"ATALAY_SWEEP='eps_M'; ATALAY_PROFILE_GRID={BENCHMARK_EPS_M}; "
         f"ATALAY_PROFILE_OUT='{matlab_string(DERIVED / 'benchmark')}'; "
         f"run('{matlab_string(HERE / 'export_atalay_elasticity_profile.m')}');"
     ))
     benchmark = loadmat(DERIVED / "benchmark/atalay_eps_M_001.mat", squeeze_me=True)
     frame = pd.DataFrame(benchmark["shocks"], columns=[f"shock_{i:02d}" for i in range(1, 31)])
     frame.insert(0, "year", np.asarray(benchmark["years"], dtype=int))
-    frame.to_csv(DERIVED / "atalay_benchmark_productivity_shocks.csv", index=False, float_format="%.15g")
-    np.savetxt(DERIVED / "atalay_benchmark_network_variance_matrix.csv", benchmark["V"], delimiter=",", fmt="%.15g")
+    frame.to_csv(DERIVED / "atalay_benchmark_productivity_shocks.csv", index=False, float_format=BENCHMARK_FORMAT)
+    np.savetxt(DERIVED / "atalay_benchmark_network_variance_matrix.csv", benchmark["V"], delimiter=",", fmt=BENCHMARK_FORMAT)
+    finish_stage("benchmark", "", inputs)
 
 
 def profile_ready(sweep):
+    return stage_current("profile", sweep) and _profile_valid(sweep)
+
+
+def _profile_valid(sweep):
     directory = DERIVED / "elasticity_profile" / sweep
     index = directory / "grid_index.csv"
     if not index.is_file():
@@ -130,6 +255,10 @@ def profile_ready(sweep):
 
 
 def surface_ready(tag):
+    return stage_current("surface", tag) and _surface_valid(tag)
+
+
+def _surface_valid(tag):
     path = DERIVED / "elasticity_surface" / f"atalay_surface_epsD_{tag}.mat"
     if not path.is_file():
         return False
@@ -150,6 +279,10 @@ def surface_ready(tag):
 
 
 def fits_ready(tag):
+    return stage_current("fits", tag) and _fits_valid(tag)
+
+
+def _fits_valid(tag):
     directory = DERIVED / "elasticity_surface"
     path = directory / f"one_factor_{tag}.csv"
     if not path.is_file() or not surface_ready(tag):
@@ -167,9 +300,19 @@ def fits_ready(tag):
 
 def prepare_surface(program, tag, value):
     if not surface_ready(tag):
+        inputs = begin_stage("surface", tag)
         run_matlab(program, f"ATALAY_SURFACE_EPSD={value}; run('{matlab_string(HERE / 'export_atalay_elasticity_surface.m')}');")
+        finish_stage("surface", tag, inputs)
     if not fits_ready(tag):
+        inputs = begin_stage("fits", tag)
         run_matlab(program, f"addpath('{matlab_string(HERE)}'); fit_surface(ATALAY_REPO_ROOT, '{tag}');")
+        finish_stage("fits", tag, inputs)
+
+
+def prepare_profile(program, sweep):
+    inputs = begin_stage("profile", sweep)
+    run_matlab(program, f"ATALAY_SWEEP='{sweep}'; run('{matlab_string(HERE / 'export_atalay_elasticity_profile.m')}');")
+    finish_stage("profile", sweep, inputs)
 
 
 def main():
@@ -211,9 +354,7 @@ def main():
     if benchmark:
         prepare_benchmark(matlab)
     for sweep in profiles:
-        run_matlab(matlab, f"ATALAY_SWEEP='{sweep}'; run('{matlab_string(HERE / 'export_atalay_elasticity_profile.m')}');")
-        if not profile_ready(sweep):
-            raise RuntimeError(f"Atalay {sweep} profile is incomplete; inspect its grid_index.csv.")
+        prepare_profile(matlab, sweep)
     with ThreadPoolExecutor(max_workers=args.jobs) as workers:
         list(workers.map(lambda item: prepare_surface(matlab, *item), surfaces))
 

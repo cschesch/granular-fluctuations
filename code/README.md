@@ -12,16 +12,17 @@ Run commands below from the repository root with the environment activated.
 | `make -C code PYTHON=python simulations` | Inference and GIV Monte Carlo experiments |
 | `make -C code PYTHON=python empirical` | Grouping comparison and Compustat appendix results |
 
-`empirical` refreshes the quarterly Compustat summary and subsampling draws first
-when the raw data are present, so it cannot silently use an older export. The `all`
-target runs sections in the required order. To inspect a section:
+The empirical section first rebuilds the quarterly Compustat results it needs
+when the data are available. The `all` target runs all sections in the required
+order. To inspect a section:
 
 ```sh
 python code/run_replication.py simulations --plan
 ```
 
 Each run records completed, skipped and failed analyses, reasons, selected input
-files, command logs and timings in `output/run_report.json`. Use `--strict` to
+files, command logs and timings in `output/run_report.json`. The report is updated
+as execution progresses, with a copy beside each run's logs. Use `--strict` to
 fail on unavailable analyses. Missing table entries are dashes or empty cells,
 not estimated zeros. A completed run has not necessarily reproduced reference
 numbers; check those separately below.
@@ -72,10 +73,15 @@ deliberately smaller than the paper settings and never replace paper estimates.
   `python code/check_results.py --strict` also fails if any reference result is
   unavailable. References are in `reference_results.json`, separate from new runs.
 
+`python code/check_public_results.py` rebuilds the three public reference
+applications in a temporary checkout, verifies their input hashes and runs the
+strict numerical check. It uses 12 bootstrap draws to exercise the pipeline;
+the comparisons cover point estimates and dimensions, not confidence intervals.
+
 ## Generated files
 
-Figures, tables and run reports go to `output/`. Prepared data, clean panels,
-estimates, logs and checkpoints go to `code/.cache/`; writers create directories
-as needed. Both locations are ignored by Git. Clean-panel keys use complete
-input-file hashes and explicit cleaning versions. Older partial-hash caches
-remain on disk but are rebuilt once under the corrected keys.
+Figures, tables and run reports are written to `output/`. Prepared data,
+estimates, logs and checkpoints are stored in `code/.cache/`. These folders
+are created automatically and are ignored by Git.
+
+Clean-panel caches are keyed by input-file hashes and cleaning versions.

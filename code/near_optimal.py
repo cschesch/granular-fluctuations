@@ -1,49 +1,11 @@
 #!/usr/bin/env python3
-"""Fang--Santos directional derivative over the delta_T-near-optimal dual set.
+"""Estimate directional derivatives over near-optimal dual solutions.
 
-The derivative of the grouped ceiling is a minimum over the dual optimizer set,
+For each covariance perturbation H, minimize <Y, H> over feasible duals
+whose objective is at most (1 + delta_T) times the estimated optimum.
 
-    Gamma_bar'(Sigma; H) = min{ <Y,H> : Y in Y*(Sigma) },
-
-and the practical question is how to estimate that set. Reading it off the geometry of
-the sample optimum -- the rank of C* and the activity of D* -- needs two tolerances, and
-the face those tolerances cut out can be unbounded, at which point the derivative has no
-finite value and the estimator has to fall back.
-
-This module estimates it instead by near-optimality, which needs no rank and no null
-space:
-
-    Y_hat_T = { Y >= 0 : diag(Y) >= 1,  <Y, Sigma_hat> <= (1 + delta_T) Gamma_hat },
-
-with the tolerance measured in units of the aggregate variance so that it is
-dimensionless, and
-
-    delta_T = sqrt(log T / T),    so    delta_T -> 0    and    sqrt(T) delta_T -> infinity.
-
-The two rates do different jobs: sampling displaces a population optimizer from sample
-optimality by O_p(T^{-1/2}), so ``sqrt(T) delta_T -> infinity`` keeps every population
-optimizer inside the set, while ``delta_T -> 0`` eventually expels every genuinely
-suboptimal dual. This is the value-function analogue of the shrinking-neighbourhood
-derivative estimator of Fang and Santos (2019, Section 4.2).
-
-The set is automatically bounded whenever ``Sigma_hat > 0``: for ``Y >= 0``,
-``<Y,Sigma_hat> >= lambda_min(Sigma_hat) tr(Y)``, so near-optimality caps the trace.
-There is therefore no unbounded face and no fallback.
-
-Computationally this is one small SDP per direction, with constraints that do not depend
-on the direction. Dualizing it collapses to the barrier family this package already
-solves: with a multiplier ``nu >= 0`` on the diagonal constraints and ``t >= 0`` on the
-near-optimality constraint,
-
-    min{<Y,H> : Y in Y_hat_T} = max{ 1'nu - kappa t : H + t Sigma_hat - Diag(nu) >= 0 },
-
-where ``kappa = (1 + delta_T) Gamma_hat``. That is M+1 variables against the
-M(M+1)/2 of the primal, and it is exactly ``max w'nu s.t. Sigma - Diag(nu) >= 0`` with
-one extra direction added to the linear matrix inequality. Slater holds on the primal --
-``Y* + eps I`` is strictly feasible for small eps -- so the values agree.
-
-The numpy implementation here is the reference; ``mgp_kernels.barrier_nearopt`` is the
-compiled one, and ``test_inference_mc`` checks both against cvxpy.
+Provides compiled and NumPy implementations, with general-solver
+retries for unsuccessful compiled solves. See NUMERICAL_METHODS.md.
 """
 
 from __future__ import annotations
@@ -94,10 +56,12 @@ def near_optimal_derivative(
     max_iter: int = MAX_ITER,
     backstop: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """The compiled path; falls back to the numpy reference without numba.
+    """Estimate directional derivatives, using the NumPy solver without Numba.
 
     ``sigma`` is either one (M,M) covariance shared by every direction, or an (R,M,M)
     stack with ``owner`` saying which one each direction belongs to; ``cap`` matches.
+    With ``backstop=True``, unsuccessful compiled solves are retried with a general
+    SDP solver. Return one value and one success flag per direction.
     """
     directions = _symmetrize(np.asarray(directions, dtype=float))
     sigma = np.asarray(sigma, dtype=float)
@@ -119,16 +83,12 @@ def near_optimal_derivative(
                 center_tol=center_tol, final_tol=final_tol, max_iter=max_iter,
             )
         return values, flags
-    # Both the direction and the covariance are normalised. The grouped covariance
-    # carries the size weights and so has entries orders of magnitude below one, which
-    # would otherwise force the multiplier on the near-optimality constraint to be huge.
-    # Rescaling Sigma by its norm and the cap with it leaves the value unchanged.
+    # Normalize each direction by its Frobenius norm. Scale each covariance
+    # and its objective cap by the covariance's smallest eigenvalue to improve
+    # conditioning. Restore the direction's scale in the returned value.
     scale = np.linalg.norm(directions, axis=(1, 2))
     scale = np.where(scale > 0, scale, 1.0)
     h = np.ascontiguousarray(directions / scale[:, None, None])
-    # Scale Sigma by its smallest eigenvalue, not its norm: the multiplier t has to
-    # reach 1/lambda_min(Sigma) before the pencil H + t Sigma is positive definite, so
-    # this is the normalisation that puts the starting point at t = O(1).
     sig_scale = np.linalg.eigvalsh(sigma)[:, 0]
     sig_scale = np.where(sig_scale > 0, sig_scale, 1.0)
     sigma = np.ascontiguousarray(sigma / sig_scale[:, None, None])
@@ -151,9 +111,8 @@ def near_optimal_derivative(
     value = (nu.sum(axis=1) - caps[owner] * t) * scale
     if ok.all() or not backstop:
         return value, ok
-    # The program is feasible and bounded, so what the barrier could not finish a
-    # general solver can. Only the objective varies within a replication, so one task
-    # per distinct covariance serves all of its stragglers.
+    # Retry unconverged directions with a general SDP solver, grouped by
+    # covariance so the optimization problem can be reused.
     from mosek_face import MosekError, NearOptimalSolver, licensed_mosek
 
     stuck = np.flatnonzero(~ok)
@@ -215,13 +174,9 @@ def near_optimal_derivative_numpy(
     k, m, _ = directions.shape
     scale = np.linalg.norm(directions, axis=(1, 2))
     scale = np.where(scale > 0, scale, 1.0)
-    # The value is homogeneous of degree one in (H, cap) jointly with Sigma held fixed,
-    # so normalising the direction and the cap together only rescales the answer.
+    # Normalize the direction only; the minimum is homogeneous in H.
     h = directions / scale[:, None, None]
-    # Substituting H = s h and (nu, t) = s (nu', t') leaves the constraint unchanged and
-    # the objective scaled by s, so the *cap* is carried through unscaled: dividing it
-    # too would tighten the near-optimality constraint past feasibility. Sigma and the
-    # cap are then rescaled together, which does leave the value alone.
+    # Scale Sigma and its cap together to preserve the near-optimal set.
     sig_scale = float(np.linalg.eigvalsh(sigma)[0]) or 1.0
     sigma = sigma / sig_scale
     caps = np.full(k, float(cap) / sig_scale)

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Batched semidefinite-program solver for the Monte Carlo experiments.
 
-Solves grouped and weighted granularity problems and the reduced problems
-used for directional derivatives. Returns estimates and convergence diagnostics.
+Solves grouped and weighted granularity problems and reduced-face directional
+problems. The current gradient bootstrap uses near_optimal.py instead.
+Returns estimates and convergence diagnostics.
 See NUMERICAL_METHODS.md for the derivation and tests/test_inference_mc.py
 for comparisons with the reference solver.
 """
@@ -15,18 +16,16 @@ import numpy as np
 
 import mgp_kernels
 
-# Path-following schedule. The value certificate is 2 M mu; shrink and
-# center_tol trade Newton steps per stage against the number of stages.
+# Path-following schedule. For the full basis and full nonnegativity mask,
+# the exact central-path gap is 2 M mu. See NUMERICAL_METHODS.md for qualifications.
 MU_START_SCALE = 0.05   # mu_0 = MU_START_SCALE * tr(Sigma)/M on the unit-norm problem
-MU_END = 1e-10          # stop at duality gap 2 M mu on the unit-norm problem
+MU_END = 1e-10          # terminal barrier parameter on the unit-norm problem
 MU_SHRINK = 0.02
 CENTER_TOL = 3e-1       # Newton decrement^2 tolerated before shrinking mu
 FINAL_TOL = 1e-11       # Newton decrement^2 required at mu = MU_END
 MAX_ITER = 500
 HESSIAN_JITTER = 1e-13
-# On the unit-norm problem any bounded face has ||Y||_F <= M, so |1'nu| <= M at the
-# optimum; |nu| past this is an unbounded program, and bailing early keeps a
-# hopeless reduced face from costing hundreds of Newton steps.
+# Stop iterates that exceed this numerical divergence threshold.
 DIVERGENCE_BOUND = 1e3
 
 
@@ -34,21 +33,21 @@ DIVERGENCE_BOUND = 1e3
 class BatchSolution:
     """Solution of a stack of ``max w'nu s.t. V'(Sigma-Diag(nu))V >= 0`` problems."""
 
-    value: np.ndarray        # (K,)      optimal w'nu
-    nu: np.ndarray           # (K, M)    optimal diagonal
-    dual: np.ndarray         # (K, M, M) Y = mu V G^{-1} V' -> Y*
-    mu: np.ndarray           # (K,)      terminal barrier parameter (gap = 2 M mu)
-    iterations: int          # Newton steps taken on the whole batch
+    value: np.ndarray        # (K,)      estimated optimal w'nu
+    nu: np.ndarray           # (K, M)    terminal diagonal iterate
+    dual: np.ndarray         # (K, M, M) Y = mu V G^{-1} V', or zeros if omitted
+    mu: np.ndarray           # (K,)      terminal barrier parameter
+    iterations: int          # batch steps, or iteration limit on the compiled path
     converged: np.ndarray    # (K,)      reached MU_END with a centered iterate
 
     @property
     def relative_gap(self) -> np.ndarray:
-        """Certified relative duality gap ``2 M mu / value`` of each solution."""
+        """Barrier-based relative-gap diagnostic; interpret with convergence and feasibility checks."""
         m = self.nu.shape[1]
         return 2.0 * m * self.mu / np.where(self.value != 0, np.abs(self.value), 1.0)
 
     def common(self, sigma: np.ndarray) -> np.ndarray:
-        """C = Sigma - Diag(nu), the common part at the optimum (basis=None case)."""
+        """C = Sigma - Diag(nu), the estimated common part for a full-basis solve."""
         m = self.nu.shape[1]
         return np.asarray(sigma, float) - self.nu[:, :, None] * np.eye(m)
 
@@ -69,7 +68,7 @@ def _symmetrize(a: np.ndarray) -> np.ndarray:
 def _feasible_start(
     s: np.ndarray, basis: np.ndarray | None, mask: np.ndarray, nu_init: np.ndarray | None
 ) -> np.ndarray:
-    """A strictly feasible nu: V'(S-Diag(nu))V > 0, and nu > 0 on the mask."""
+    """Initialize nu, seeking V'(S-Diag(nu))V > 0 and nu > 0 on the mask."""
     k, m, _ = s.shape
     if basis is None:
         if nu_init is None:
@@ -149,13 +148,10 @@ def solve_batch(
     a length-M boolean mask of coordinates constrained to nu_i >= 0. ``basis`` is
     an (M,q) matrix with orthonormal columns; None means the identity.
     ``weights`` is a positive length-M objective vector; None means all ones.
-    ``nu_init`` and ``mu_init`` warm-start the path from a nearby solution
-    (bootstrap draws around the full-sample optimum), which is exact, only faster.
-    ``guard`` caps every step at the exact distance to the boundary; it costs about
-    2x per iteration and changes nothing on problems that already converge, so it is
-    a retry option rather than a default. ``need_dual=False`` skips reconstructing
-    ``Y = mu P``, which costs about as much as the solve itself and is pure waste for
-    the resampling draws, where only the optimal value is read.
+    ``nu_init`` and ``mu_init`` warm-start the same optimization problem.
+    For a shared reduced basis, ``guard`` uses the NumPy path and caps steps
+    inside the estimated cone boundary. ``need_dual=False`` skips dual
+    reconstruction on the compiled path when only the value is needed.
     """
     sig = _as_batch(sigma)
     k, m, _ = sig.shape
@@ -222,7 +218,7 @@ def solve_batch(
             nu, mu0, mu_end, shrink, center_tol, final_tol, max_iter, m, need_dual,
         )
 
-    guard = bool(guard) and basis is not None   # see the module docstring
+    guard = bool(guard) and basis is not None   # boundary guard for reduced problems
     live = np.arange(k)
     s_live = s if basis is None else s_basis
     nu_live, mu_live = nu, mu0
@@ -272,8 +268,8 @@ def solve_batch(
         at_end = mu_live <= mu_end
         centered = dec2 < np.where(at_end, final_tol, center_tol)
         done = centered & at_end
-        # An unbounded program (an enlarged dual face with a recession direction) shows
-        # up as iterates running away; retire those with converged = False.
+        # Retire nonfinite or oversized iterates. This detects numerical failure,
+        # not whether the underlying optimization problem is unbounded.
         gone = ~(np.abs(nu_live).max(axis=1) <= DIVERGENCE_BOUND)   # also catches NaN
         mu_live = np.where(centered & ~at_end, np.maximum(mu_live * shrink, mu_end), mu_live)
         retire = done | gone
@@ -309,14 +305,10 @@ def solve_batch(
 
 
 def _run_full_kernel(s, w, mask, nu_out, mu_out, ok_out, tail):
-    """Dispatch the full-basis kernel, lane-blocked when the batch is worth blocking.
+    """Dispatch the full-basis kernel, using lane blocks for larger batches.
 
-    ``barrier_full_lanes`` wants the batch in the innermost axis and a multiple of
-    ``LANES`` problems; the transpose is two passes over an array the solve then reads
-    forty times, and the padding repeats the last problem. It returns the same numbers
-    as the scalar kernel to machine precision (``test_inference_mc`` asserts 1e-12) at
-    about 1.6x the speed, so the scalar path is kept only for batches too small to be
-    worth reshaping.
+    Lane blocks put the batch on the innermost axis and pad to a multiple of
+    ``LANES`` by repeating the last problem. Small batches use the scalar kernel.
     """
     k, m, _ = s.shape
     lanes = mgp_kernels.LANES
@@ -345,12 +337,7 @@ def _run_full_kernel(s, w, mask, nu_out, mu_out, ok_out, tail):
 
 
 def _run_reduced_kernel(s_basis, basis, w, mask, nu_out, mu_out, ok_out, tail):
-    """Dispatch the reduced-basis kernel, lane-blocked when the batch is worth blocking.
-
-    Same trade as ``_run_full_kernel``: two transposes against forty vectorised Newton
-    steps. This is the hotter of the two kernels -- the directional derivatives are the
-    largest single cost in the experiment -- and the layout buys about 1.7x on it.
-    """
+    """Dispatch the reduced-basis kernel with the same lane layout as the full kernel."""
     k, m, q = basis.shape
     lanes = mgp_kernels.LANES
     if k < 4 * lanes:
@@ -438,7 +425,7 @@ def null_basis(common: np.ndarray, rank: int) -> np.ndarray:
 
 
 def face_is_bounded(corank: int, heywood: int, m: int) -> bool:
-    """Whether the reduced dual face has no recession direction, so its min is finite.
+    """Conservative dimension screen for an estimated reduced dual face.
 
     The face is ``F = {Y = V Z V' >= 0 : Y_ii = 1 on the active diagonal, >= 1 elsewhere}``
     with V an orthonormal basis of the estimated null space of C*, of dimension
@@ -448,17 +435,14 @@ def face_is_bounded(corank: int, heywood: int, m: int) -> bool:
     intersection gives ``R = u u'``, so F is unbounded exactly when the intersection is
     nontrivial -- generically when ``corank + heywood > m``.
 
-    The test here is the strict one, ``corank + heywood < m``. At equality the
-    intersection is generically trivial and the face is formally bounded, but only just:
-    its recession cone is trivial by a dimension count that fails in every neighbourhood,
-    the minimum is attained arbitrarily far out, and neither the compiled solver nor
-    MOSEK returns it reliably (MOSEK reports "solution may be inaccurate"). Those
-    replications are therefore reported as fallbacks rather than solved badly, which is
-    also what ``gradient_bootstrap.ShareDirectionalDerivative`` ends up doing.
+    This function accepts only ``corank + heywood < m``, rejecting the equality
+    boundary as well. Counts alone do not test the actual intersection for a
+    nongeneric basis; passing this screen is not a boundedness certificate.
 
-    With the exact null space of C* none of this binds (a recession direction R would
-    have <R, Sigma> = 0 with Sigma > 0, forcing R = 0). It binds only because the corank
-    is read off at a relative tolerance, which overstates it.
+    With the exact optimal face and Sigma > 0, a recession direction R would
+    satisfy <R, Sigma> = 0, forcing R = 0. Estimating the null space and active
+    coordinates can enlarge that face. The current gradient bootstrap avoids
+    this construction by using a near-optimal objective cap.
     """
     return corank + heywood < m
 
@@ -471,7 +455,7 @@ def directional_derivative_batch(
     nonneg: bool | np.ndarray = False,
     mu_end: float = MU_END,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """``Gamma_bar'(Sigma; H_b) = min{<Y,H_b> : Y in Y*(Sigma)}`` for a stack of H_b.
+    """Evaluate directional responses on a supplied dual face for a stack of H_b.
 
     With a singleton dual face (the regular case) the min is the linear map <Y*, H>
     and ``basis=None`` selects that path. Otherwise the face is
@@ -482,10 +466,11 @@ def directional_derivative_batch(
     with one face per direction -- which is how a whole chunk of replications is solved
     in one call. A stacked basis must be screened with ``face_is_bounded`` by the caller.
 
-    Returns the derivative and a boolean flag marking the directions where the face
-    program did not solve, and the single-dual value <Y*, H> was substituted -- the
-    fallback ``gradient_bootstrap.ShareDirectionalDerivative`` also takes, and one the
-    caller should report rather than hide.
+    Returns the value and a boolean flag marking directions where the face was
+    rejected or the program did not solve, so the single-dual value <Y*, H> was
+    substituted. That substitution need not equal the directional derivative at
+    a nonregular point. This routine is separate from the current near-optimal
+    gradient bootstrap.
     """
     directions = _as_batch(directions)
     ystar = np.asarray(ystar, dtype=float)
@@ -507,10 +492,9 @@ def directional_derivative_batch(
                       need_dual=False)
     value, failed = sol.value.copy(), ~sol.converged
     if failed.any():
-        # Retry the stragglers. A tighter barrier target with more iterations rescues
-        # most of them for the price of a handful of solves; for a shared face the
-        # exact step-to-boundary cap is available as well. Whatever still fails is the
-        # caller's problem -- it re-solves those through cvxpy, or falls back.
+        # Retry with a tighter barrier target and more iterations. A shared face
+        # also permits a guarded retry. Remaining failures return the selected-dual
+        # value and a failure flag below.
         idx = np.flatnonzero(failed)
         retry = solve_batch(
             directions[idx],
@@ -531,8 +515,8 @@ def directional_derivative_batch(
 def firm_level_mgp(sigma: np.ndarray, sizes: np.ndarray, **kwargs) -> BatchSolution:
     """Weighted MGP ``Gamma(Sigma, S) = max{S'DS : D >= 0 diagonal, Sigma - D >= 0}``.
 
-    The draft's eq. (3) at the raw (not size-weighted) covariance, so the diagonal
-    variables stay O(1) even when the sizes are power-law.
+    Uses the raw covariance and places size weights in the objective, avoiding
+    the additional scale dispersion of a size-weighted covariance.
     """
     sizes = np.asarray(sizes, dtype=float).ravel()
     return solve_batch(sigma, nonneg=True, weights=sizes**2, **kwargs)

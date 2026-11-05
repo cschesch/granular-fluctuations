@@ -6,3 +6,6 @@ with the original copyright notices retained. The World Bank
 [CM.MKT.LCAP.CD](https://data.worldbank.org/indicator/CM.MKT.LCAP.CD) snapshot supplies
 fixed end-1975 market-capitalization weights. The analysis uses January 1976
 through December 2025 returns for the 12 markets with complete inputs.
+
+See the [preparation code](../../code/applications/french/prepare.py) and
+[panel loader](../../code/applications/french/panel.py).

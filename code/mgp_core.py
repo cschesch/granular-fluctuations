@@ -52,7 +52,7 @@ def atomic_write_pickle(obj: object, path: Path) -> None:
 
 
 def _content_fingerprint(p: Path, chunk: int = 1 << 20) -> str:
-    """SHA-256 of the complete input, including changes outside its endpoints."""
+    """Return the input file's SHA-256 checksum."""
     h = hashlib.sha256()
     with open(p, "rb") as f:
         for block in iter(lambda: f.read(chunk), b""):
@@ -128,11 +128,9 @@ def installed_solvers() -> set[str]:
 
 
 def align_sizes_to_panel(y: pd.DataFrame, sizes: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
-    """Drop units with missing or non-positive sizes and sort by decreasing size.
+    """Drop invalid sizes and sort units by decreasing size.
 
-    Shared by every consumer of a ``SourcePanel``-style (units x time, sizes)
-    pair so the unit ordering fed into LPT is identical across the run scripts
-    and the diagnostic scripts.
+    This fixes the unit order used by LPT.
     """
     sizes = sizes.reindex(y.index).astype(float)
     keep = sizes.gt(0) & np.isfinite(sizes)

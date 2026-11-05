@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Barebones grouped-GIV Monte Carlo: N=1000; T=100, 1000 and 10000.
+"""Compare full-panel and grouped granular IV estimators in simulated data.
 
-At each sample length, simulate 1,000 independent datasets and apply all
-ten methods to each dataset before drawing the next. Five methods
-per full/grouped panel: oracle loadings, oracle count + PCA, Bai--Ng ICp2
-+ PCA, oracle count + Hahn Algorithm 1 joint GMM, and feasible Hahn+BIC.
-Use ordinary inverses;
-report structurally singular BIC or joint moment covariances as undefined. No ridge, trimming,
-redraws, supplementary designs, or GMM variants. One seeded RNG, serial loops.
+Apply oracle, PCA, Bai--Ng, and Hahn et al. procedures to the same
+simulated datasets. Structurally singular estimation problems are
+reported as undefined rather than repaired by regularization or redraws.
+
+Default designs and replication counts are defined below.
 """
 
 from __future__ import annotations

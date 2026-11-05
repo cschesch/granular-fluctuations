@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Grouped-MGP estimate on firm shocks recovered with Stella's dynamic inverse.
+"""Estimate granularity from firm shocks recovered with Stella's dynamic model.
 
-The baseline uses the exact decision-rule equations in Stella's deposited GAUSS
-code, solved by the independently benchmarked Octave/gensys port.
+Use the Octave/gensys implementation of the original GAUSS decision rules
+and shock-recovery equations.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def load_dynamic_panel(calibration: Path, ids: pd.Index):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    # Paper-wide grouping dimension; other values are sensitivities only.
+    # Baseline number of groups for this application.
     parser.add_argument("--M", type=int, default=10)
     parser.add_argument("--bootstrap-b", type=int, default=ANALYSIS_BOOTSTRAP_DRAWS)
     parser.add_argument("--seed", type=int, default=20260908)

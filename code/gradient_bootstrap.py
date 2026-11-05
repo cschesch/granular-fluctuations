@@ -1,37 +1,12 @@
 #!/usr/bin/env python3
-"""Gradient bootstrap (Fang--Santos 2019, Theorem 3.2) for the grouped share.
+"""Gradient-bootstrap inference for grouped granularity bounds.
 
-The ordinary bootstrap recomputes the whole nonlinear share g on each resample and
-is inconsistent at the kink (a non-singleton dual optimal set). The gradient bootstrap
-instead bootstraps the *grouped covariance* (which is regular) and pushes each
-bootstrap shock through the ANALYTICAL directional derivative of the share:
+Resample the grouped covariance and estimate the share's directional
+response over a near-optimal set of dual solutions. Both independent
+and moving-block resampling are supported.
 
-    h_b = sqrt(T) (Sigma*_b - Sigma_hat),
-    D_b = g'(Sigma_hat; h_b),   g'(Sigma; H) = Gamma_bar'(Sigma; H)/a - g_hat (1'H1)/a,
-
-with a = 1'Sigma_hat 1 and the SDP-value directional derivative given by Danskin as a
-minimum over the dual optimal set,
-
-    Gamma_bar'(Sigma; H) = min_{Y in D*(Sigma)} <Y, H>,
-    D*(Sigma) = { Y : Y >= 0, diag(Y) >= 1, <Sigma, Y> = Gamma_bar(Sigma) },
-
-which is a singleton in the regular case and a face in the non-regular one. D* is not
-estimated by reading rank and activity off the sample optimum -- that needs two
-tolerances and can produce an unbounded face -- but by NEAR-OPTIMALITY,
-
-    Y_hat_T = { Y >= 0 : diag(Y) >= 1, <Y,Sigma_hat> <= (1 + delta_T) Gamma_bar(Sigma_hat) },
-    delta_T = sqrt(log T / T),
-
-so that delta_T -> 0 while sqrt(T) delta_T -> infinity. Y_hat_T is compact whenever
-Sigma_hat > 0, converges to D* in Hausdorff distance, and the induced derivative
-estimator satisfies Fang--Santos Assumption 4 (see the near-optimal gradient-bootstrap
-proposition in the draft). The conditional law of {D_b} estimates the limit law of
-sqrt(T)(g_hat - g) in both regimes; the CI inverts it as for subsampling.
-
-The plain bootstrap (g on the resample) and the gradient bootstrap share one set of
-iid draws; the block bootstrap and block gradient bootstrap share one set of moving
-blocks -- so each draw is used twice (efficiency), and the two families are directly
-comparable. Everything bootstraps the grouped objects x_tilde.
+See near_optimal.py for the derivative solver and NUMERICAL_METHODS.md
+for the method and its assumptions.
 """
 
 from __future__ import annotations
@@ -55,44 +30,14 @@ from near_optimal import delta_rate, near_optimal_derivative
 
 
 class ShareDirectionalDerivative:
-    """Directional derivative of the share at a FIXED Sigma_hat, over the near-optimal set.
+    """Estimate directional responses at a fixed sample covariance.
 
-    By Danskin the SDP-value derivative is a minimum over the dual optimal set,
+    Minimize each direction over dual solutions within a relative objective
+    tolerance delta_T = c * sqrt(log(T) / T) of the estimated optimum. Apply
+    the quotient rule to convert value responses into share responses.
 
-        Gamma_bar'(Sigma; H) = min{ <Y,H> : Y in Y*(Sigma) },
-        Y*(Sigma) = { Y >= 0 : diag(Y) >= 1, <Y,Sigma> = Gamma_bar(Sigma) },
-
-    and the estimator has to supply that set. Reading it off the geometry of the sample
-    optimum -- the numerical rank of the recovered common part and the activity of its
-    diagonal -- requires two tolerances, and the face they cut out can be unbounded when
-    buckets sit at a Heywood boundary, in which case the minimum does not exist and the
-    derivative has to fall back on the single dual <Y*, H> that Fang and Santos warn
-    against.
-
-    We instead estimate the set by near-optimality:
-
-        Y_hat_T = { Y >= 0 : diag(Y) >= 1,
-                    <Y,Sigma_hat> <= (1 + delta_T) Gamma_bar(Sigma_hat) },
-
-    i.e. the duals that are within delta_T RELATIVE of optimal, with
-
-        delta_T = c sqrt(log T / T),
-
-    so that delta_T -> 0 while sqrt(T) delta_T -> infinity. The two rates do different
-    jobs. Sampling displaces a population optimizer from sample optimality by
-    O_p(T^{-1/2}); sqrt(T) delta_T -> infinity therefore keeps every population optimizer
-    inside the estimated set, and delta_T -> 0 eventually expels every genuinely
-    suboptimal dual. This is the value-function analogue of the shrinking-neighbourhood
-    derivative estimator of Fang and Santos (2019, Section 4.2), whose Assumption 4 the
-    resulting map satisfies (draft Proposition on the near-optimal gradient bootstrap).
-
-    Two practical consequences. There is no rank and no null space, so no tolerance on
-    either. And because <Y,Sigma_hat> >= lambda_min(Sigma_hat) tr(Y), near-optimality
-    caps the trace whenever Sigma_hat > 0: the set is compact, the minimum always exists,
-    and there is nothing to fall back to.
-
-    ``regular`` and ``r`` are retained as reported diagnostics only; nothing in the
-    estimator uses them.
+    The near-optimal set requires a positive-definite covariance.
+    Rank and regularity measures are diagnostics, not inputs to this set.
     """
 
     def __init__(self, sigma: np.ndarray, solver: str, n_obs: int,
@@ -115,10 +60,11 @@ class ShareDirectionalDerivative:
         self.r = numerical_rank(eig, rel_tol)
         self.regular = self.r >= ledermann_bound(self.m)
         self._face_solves = 0
+        # Count unsuccessful returned directions, not general-solver retries.
         self._face_fallbacks = 0
 
     def levels(self, directions: np.ndarray) -> np.ndarray:
-        """Gamma_bar'(Sigma_hat; H) for a stack of directions, in one batched solve."""
+        """Estimate the SDP-value directional derivative for a batch of directions."""
         directions = np.asarray(directions, dtype=float)
         value, ok = near_optimal_derivative(directions, self.sigma, self.cap)
         self._face_solves += int(ok.sum())

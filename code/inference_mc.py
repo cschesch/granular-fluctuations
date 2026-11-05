@@ -1,42 +1,17 @@
 #!/usr/bin/env python3
-"""Monte Carlo laboratory for the inference of Section 3 (draft ``sec:inference``).
+"""Population construction, sampling, and inference comparisons.
 
-The tightness figure (``fig:gaussian_power_law_tightness``) draws one Gaussian
-population per cell and reads off the *population* looseness of the grouped
-ceiling. This module keeps that generative benchmark and adds the sampling
-dimension, so that every claim in the inference section can be checked against a
-population whose answer is known:
+Build factor-model populations with power-law sizes, calculate full-panel
+and grouped granularity bounds, and compare inference methods on repeated
+samples. Gaussian designs can be sampled directly in grouped coordinates;
+heavy-tailed designs are generated at the unit level.
 
-* power-law sizes ``S_i propto i^(-zeta)`` on ``N`` units (draft eq. for
-  ``prop:powerlaw``), LPT grouping on squared sizes into ``M`` buckets;
-* ``r`` Gaussian factors with loadings independent of size rank
-  (Assumption ``ass:haar``), i.i.d. across units;
-* heteroskedastic idiosyncratic variances -- the case the draft insists on, since
-  homoskedasticity would identify the granular share outright;
-* the factor scale calibrated so that the designed granular share hits a target.
+Population moments are analytical conditional on the loading draw; bounds
+are solved numerically before sampling. The planted idiosyncratic share,
+full-panel bound, and grouped bound are distinct benchmarks.
 
-Everything downstream is then exact rather than simulated:
-
-* the truth ``gamma_0 = Gamma(Sigma_0,S)/(S'Sigma_0 S)`` from the weighted
-  firm-level MGP, so the *firm-level* looseness of the MGP itself is visible;
-* the estimand ``gamma_bar_0 = gamma(G Sigma_0 G')``, its population dual
-  optimizer, the rank of its common part, and hence whether the population
-  optimum is regular in the sense of Lemma ``lem:dirdiff``;
-* the regular-case asymptotic variance in closed form,
-  ``Var(u_t) = 2 tr(A Sigma A Sigma)/sigma_y^4`` with ``A = Y* - gamma_bar 11'``.
-
-Sampling exploits the fact that the estimator only ever sees the grouped panel:
-under Gaussian factors and shocks ``x_tilde_t = G x_t`` is exactly
-``N(0, Sigma_tilde_0)``, so Gaussian designs are simulated in M dimensions rather
-than N, and an AR(1) at the firm level is again an AR(1) after grouping. Only the
-heavy-tailed design has to be drawn at the firm level, because grouping partly
-Gaussianizes the fringe buckets while singleton buckets keep the raw tail -- which
-is itself the interesting case.
-
-All SDPs go through ``fast_mgp``: a replication's whole bootstrap is one batched
-interior-point solve. ``run_inference_mc.py`` drives the designs, ``plot_inference_mc.py`` writes
-the exhibits, and ``test_inference_mc.py`` checks this module against
-``mgp_core``/``gradient_bootstrap``.
+run_inference_mc.py selects the experiments. Numerical cross-checks are
+in tests/test_inference_mc.py.
 """
 
 from __future__ import annotations
@@ -68,10 +43,9 @@ RANK_REL_TOL = 1e-3          # matches mgp_core.numerical_rank / regularity_repo
 RANK_TIGHT_TOL = 1e-8        # near-machine tolerance, reported alongside as a sensitivity
 T_SHOCK_DF = 5.0             # heavy-tailed design: finite 4th moment, as Assumption 3 needs
 FIRM_MAX_ITER = 4000         # the firm-level SDP is one N x N problem, not a batch
-# The certified gap 2 N mu is conservative for a weighted objective: every coordinate
-# contributes mu even where S_i^2 is negligible, which at zeta = 1.4 is most of them.
-# 1e-4 on Gamma_0 is still four orders below any digit the appendix reports.
-FIRM_GAP_TOL = 1e-4          # accept Gamma_0 once its certified relative gap is this small
+# The full-basis central-path gap is 2 N mu, regardless of the objective weights.
+# Small-panel solves use that diagnostic; larger solves check repaired objectives.
+FIRM_GAP_TOL = 1e-4          # relative-gap threshold for the full-panel bound
 # Beside .cache/clean_panels rather than inside .cache/run_outputs, so that the
 # populations -- one N-dimensional SDP each -- are retained across reruns.
 POP_CACHE = CACHE_DIR / "inference_mc_populations"
@@ -116,7 +90,7 @@ class Design:
 # --------------------------------------------------------------------------- #
 @dataclass
 class Population:
-    """Exact population objects for one design. Everything here is non-random."""
+    """Population moments and benchmark values, fixed across sampling replications."""
 
     design: Design
     sizes: np.ndarray            # (N,)   size shares, sum to one
@@ -125,9 +99,9 @@ class Population:
     psi: np.ndarray              # (N,)   idiosyncratic variances
     sigma_grouped: np.ndarray    # (M,M)  Sigma_tilde_0 = G Sigma_0 G'
     sigma_y2: float              # S' Sigma_0 S = 1' Sigma_tilde_0 1
-    gamma0: float                # true granular share Gamma(Sigma_0,S)/sigma_y^2
-    gamma_designed: float        # sum_i S_i^2 psi_i / sigma_y^2
-    gamma_bar0: float            # grouped ceiling gamma(Sigma_tilde_0)
+    gamma0: float                # full-panel population granularity bound
+    gamma_designed: float        # planted idiosyncratic share: sum(S_i**2 * psi_i) / sigma_y2
+    gamma_bar0: float            # grouped population granularity bound
     ystar: np.ndarray            # (M,M)  population dual optimizer
     common: np.ndarray           # (M,M)  C* = Sigma_tilde_0 - D*
     tilde_rank: int              # rank of C* at the estimator's 1e-3 relative tolerance
@@ -145,12 +119,12 @@ class Population:
 
     @property
     def looseness(self) -> float:
-        """(gamma_bar_0 - gamma_0)/gamma_0: the object the tightness section bounds."""
+        """Excess of the grouped bound over the full-panel bound, divided by the latter."""
         return (self.gamma_bar0 - self.gamma0) / self.gamma0
 
     @property
     def firm_looseness(self) -> float:
-        """How loose the *ungrouped* MGP already is, before any grouping."""
+        """Excess of the full-panel bound over the planted share, divided by the latter."""
         return (self.gamma0 - self.gamma_designed) / self.gamma_designed
 
 
@@ -172,7 +146,7 @@ def population_key(design: Design) -> tuple:
 
 
 def firm_key(design: Design) -> tuple:
-    """Fields the *firm-level* truth depends on. The grouping M does not enter it."""
+    """Fields determining the full-panel population bound, independent of grouping M."""
     key = (design.n, design.zeta, design.r, design.idio,
            design.idio_sd, design.gamma_target, design.seed)
     return key if design.loading_draw == 1 else key + ("loading_draw", design.loading_draw)
@@ -192,7 +166,7 @@ def feasible_objectives(sigma, diagonal, dual, weights, eps=1e-12):
 
 def _firm_level_truth(design: Design, sigma_full: np.ndarray, sizes: np.ndarray,
                       use_cache: bool, objective_scale: float | None = None) -> float:
-    """``Gamma(Sigma_0,S)``, cached: the one N-dimensional SDP, shared across M."""
+    """Compute the full-panel bound ``Gamma(Sigma_0,S)``, cached across group counts M."""
     path = POP_CACHE / ("firm_" + _key_slug(firm_key(design)) + ".pkl")
     if use_cache and path.exists():
         with open(path, "rb") as handle:
@@ -216,8 +190,8 @@ def _firm_level_truth(design: Design, sigma_full: np.ndarray, sizes: np.ndarray,
         problem.solve(solver=solver,**options)
         if problem.status not in ("optimal","optimal_inaccurate"):
             raise RuntimeError(f"Full-panel population SDP: {problem.status}")
-        # Independently make the numerical primal and dual feasible, then
-        # certify their objective gap at the same tolerance as before.
+        # Repair primal and dual feasibility numerically, then check their
+        # objective gap against FIRM_GAP_TOL.
         value, upper = feasible_objectives(sigma_full, d.value, np.asarray(constraint.dual_value) * scale, weights)
         relative_gap=(upper-value)/value
         if not -1e-8 <= relative_gap <= FIRM_GAP_TOL:
@@ -294,7 +268,7 @@ def _population_regularity(sigma: np.ndarray) -> bool:
 
 
 def _build_population(design: Design, use_cache: bool = True) -> Population:
-    """Exact population objects: truth, estimand, regularity and asymptotic variance."""
+    """Construct population moments and solve the full-panel and grouped bounds."""
     rng = np.random.default_rng(design.seed)
     n, m, r = design.n, design.m, design.r
     sizes = power_law_sizes(n, design.zeta)
@@ -323,14 +297,14 @@ def _build_population(design: Design, use_cache: bool = True) -> Population:
     for j, bucket in enumerate(buckets):
         grouping[j, bucket] = sizes[bucket]
 
-    # Sigma_tilde_0 = (G Lambda)(G Lambda)' + G Diag(psi) G', the second term diagonal
-    # because buckets are disjoint. Never forms the N x N covariance.
+    # Construct the grouped covariance directly. The idiosyncratic contribution
+    # is diagonal because the groups are disjoint.
     grouped_loadings = grouping @ loadings
     grouped_psi = (grouping**2) @ psi
     sigma_grouped = grouped_loadings @ grouped_loadings.T + np.diag(grouped_psi)
     sigma_y2 = float(np.ones(m) @ sigma_grouped @ np.ones(m))
 
-    # Truth: the weighted firm-level MGP at the raw covariance (draft eq. 3).
+    # Compute the full-panel bound for comparison with the grouped bound.
     sigma_full = loadings @ loadings.T + np.diag(psi)
     gamma0 = _firm_level_truth(design, sigma_full, sizes, use_cache, granular_level) / sigma_y2
 
@@ -481,14 +455,9 @@ def point_estimates(x: np.ndarray, kbar: float) -> PointEstimates:
 # so the interval is nominal 90% two-sided and its upper endpoint is a nominal
 # 95% one-sided upper confidence limit -- the object the applications quote.
 LOW_Q, HIGH_Q = 0.05, 0.95
-# Resampling draws only ever feed a quantile, so the solver runs to a looser barrier
-# parameter there. The certified relative gap is then ~1e-4 -- on a share of 3% that is
-# five ten-thousandths of a percentage point, five orders below anything the appendix
-# reports -- and it saves a quarter of the Newton steps.
+# Resampling draws use a looser terminal barrier parameter than population solves.
 MC_MU_END = 1e-5
-# Cap on the resampled-panel array held for one batched solve. B draws already give the
-# solver ~300 problems per call, so there is nothing to gain from a large chunk, and a
-# small one keeps several parallel workers off each other's memory bandwidth.
+# Cap the resampled-panel array held for one batched solve.
 CHUNK_BYTES = 2.0e7
 
 METHODS = (
@@ -649,19 +618,11 @@ def _shares_from_cov(sigma: np.ndarray) -> np.ndarray:
 def _directional_shares(
     directions: np.ndarray, est: PointEstimates, rows: np.ndarray, delta: float
 ) -> tuple[np.ndarray, int]:
-    """gamma_bar'(Sigma_hat; H) for a (C,B,M,M) stack, over the near-optimal dual set.
+    """Estimate share responses for a (C,B,M,M) stack using the near-optimal set.
 
-    The derivative is the minimum of <Y,H> over an estimate of the dual optimizer set,
-    and this takes that estimate to be the set of duals that are near-optimal at the
-    sample covariance,
-
-        {Y >= 0 : diag(Y) >= 1, <Y, Sigma_hat> <= (1 + delta_T) Gamma_hat},
-
-    rather than reading it off the rank of the recovered common part and the activity of
-    its diagonal. Nothing here needs a numerical rank, a null space, or a notion of
-    which regime the replication is in, and the set is bounded whenever Sigma_hat is
-    positive definite, so the minimum always exists (``near_optimal``). One call carries
-    every direction of every replication in the chunk.
+    ``delta`` is an objective tolerance relative to each estimated SDP value.
+    Return the responses and the number of unsuccessful directions. See
+    NUMERICAL_METHODS.md for the set construction and quotient rule.
     """
     c, b, m, _ = directions.shape
     aggregate = est.aggregate_var[rows]
@@ -819,7 +780,7 @@ def _stream(cfg: McConfig, design: Design, tag: str) -> np.random.Generator:
 def run_design(design: Design, cfg: McConfig,
                resampling_families: tuple[str, ...] = ("bootstrap", "block_bootstrap"),
                extra_delta_scales: tuple[float, ...] = ()) -> dict:
-    """Population truth plus Monte Carlo behaviour of the estimator and the intervals."""
+    """Population benchmarks and Monte Carlo behaviour of the estimator and intervals."""
     pop = build_population(design)
     kbar = ledermann_bound(design.m)
 
@@ -909,7 +870,7 @@ def _coverage_table(
     pop: Population,
     intervals: dict[str, np.ndarray],
 ) -> list[dict]:
-    """Two-sided and one-sided coverage of both the estimand and the truth."""
+    """Coverage of the grouped bound, full-panel bound and planted share."""
     rows = []
     for name in METHODS:
         lo, hi = intervals[f"{name}_low"], intervals[f"{name}_high"]
@@ -927,9 +888,7 @@ def _coverage_table(
                 "cover_two_sided_estimand": nan if missing else float(np.mean((lo <= pop.gamma_bar0) & (pop.gamma_bar0 <= hi))),
                 "cover_upper_estimand": nan if missing else float(np.mean(pop.gamma_bar0 <= hi)),
                 "cover_upper_truth": nan if missing else float(np.mean(pop.gamma0 <= hi)),
-                # The planted factor-model share, the third population object: an
-                # interval can cover the estimand and the truth at very different
-                # rates once the grouped ceiling is loose.
+                # Coverage of the planted share can differ from coverage of either bound.
                 "cover_upper_designed": nan if missing else float(np.mean(pop.gamma_designed <= hi)),
                 "cover_two_sided_truth": nan if missing else float(np.mean((lo <= pop.gamma0) & (pop.gamma0 <= hi))),
                 "median_upper": nan if missing else float(np.median(hi)),
