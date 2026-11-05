@@ -12,7 +12,7 @@ import pandas as pd
 
 from factor_rank import factor_rank_ledermann, j_test_reportable
 from mgp_core import ROOT, RUN_OUTPUT_CACHE
-from applications.figure_layout import HIERARCHY, hierarchy_positions, tick_labels
+from applications.figure_layout import HIERARCHY, hierarchy_positions, format_application_rows
 
 
 OUT = ROOT / "output"
@@ -20,8 +20,7 @@ SUMMARY = RUN_OUTPUT_CACHE / "figure1_factor_rank_summary.pkl"
 
 
 def load_rows() -> list[dict[str, object]]:
-    estimates = pd.read_pickle(SUMMARY).set_index("dataset")
-    meta = estimates.reset_index().replace({"item": {
+    meta = pd.read_pickle(SUMMARY).replace({"item": {
         "Herskovic et al. (2020), Schur shocks": "Herskovic et al. (2020)",
         "Herskovic et al. (2020), reported links": "Herskovic et al. (2020)",
     }}).set_index(["section", "item"])
@@ -39,14 +38,13 @@ def load_rows() -> list[dict[str, object]]:
             at_ceiling = False
             all_rejected = False
             status = "not_reportable" if not j_test_reportable(int(m["M"]), int(m["T"])) else "pending"
-            if status != "not_reportable" and not estimates.empty and m["dataset"] in estimates.index:
-                result = estimates.loc[m["dataset"]]
-                raw_status = result.get("rank_test_status", "ok")
+            if status != "not_reportable":
+                raw_status = m.get("rank_test_status", "ok")
                 status = "ok" if pd.isna(raw_status) else str(raw_status)
-                if status == "ok" and pd.notna(result.get("factor_lb_J", np.nan)):
-                    estimate = float(result["factor_lb_J"])
-                    at_ceiling = bool(result.get("regular_certified_J", False))
-                    all_rejected = bool(result.get("all_ranks_rejected_J", False))
+                if status == "ok" and pd.notna(m.get("factor_lb_J", np.nan)):
+                    estimate = float(m["factor_lb_J"])
+                    at_ceiling = bool(m.get("regular_certified_J", False))
+                    all_rejected = bool(m.get("all_ranks_rejected_J", False))
             rows.append({
                 "section": section, "item": item, "dataset": m["dataset"],
                 "N": int(m["N"]), "T": int(m["T"]), "M": int(m["M"]),
@@ -88,26 +86,15 @@ def main() -> None:
         if np.isfinite(estimate):
             ax.plot(estimate, y, "o", color="#1f77b4", ms=5.2, zorder=5)
 
-    ax.set_yticks(list(positions.values()), tick_labels(positions), fontsize=11.8)
-    ax.tick_params(axis="y", length=0, pad=4)
-    for label in ax.get_yticklabels():
-        label.set_horizontalalignment("right")
-    for section, y in headings:
-        ax.text(
-            -0.015, y, section, transform=ax.get_yaxis_transform(),
-            ha="right", va="center", fontweight="bold", fontsize=12.2, clip_on=False,
-        )
+    format_application_rows(ax, positions, headings, ymax, fontsize=11.8, heading_x=-.015)
 
     ax.set_xlim(0, xmax)
     ax.set_xticks(np.arange(0, int(xmax) + 1, 1))
     ax.tick_params(axis="x", labelsize=11.2)
-    ax.set_ylim(ymax - 0.25, -0.45)
     ax.set_xlabel("Number of common factors", fontsize=12)
     for x in range(1, int(xmax)):
         ax.axvline(x, color="0.88" if x % 2 == 0 else "0.92",
                    linestyle="--" if x % 2 == 0 else ":", linewidth=0.72, zorder=0)
-    for spine in ax.spines.values():
-        spine.set_visible(True); spine.set_color("0.25"); spine.set_linewidth(0.8)
 
     handles = [
         Line2D([0], [0], marker="o", color="#1f77b4", lw=0, markersize=5.8,

@@ -21,11 +21,9 @@ the feasible point estimate and its corrected optimal weight fixed, but forms
 the final sandwich as if the estimated space were known; it is never silently
 substituted for the feasible standard error.
 
-Three estimators share one instrument space. ``estimate_joint_giv`` implements
+Two estimators share one instrument space. ``estimate_joint_giv`` implements
 Algorithm 1 with both equations, all residual directions, and cross-equation
-optimal weighting. ``estimate_grouped_giv`` runs
-Hahn et al.'s separate two-step GMM on the full set of ``K`` residual moments
-(their Remark 1).  ``scalar_iv`` instead collapses the space to the single
+optimal weighting. ``scalar_iv`` collapses the space to the single
 aggregate-predicting direction ``P d``, where ``P = A A'`` is the projector
 onto the valid space and ``d`` carries the aggregate weights, and applies the
 ordinary IV ratio; that direction attains the information bound of the paper's
@@ -51,7 +49,6 @@ from scipy.stats import chi2
 
 RANK_TOL = 1e-10
 INFO_TOL = 1e-10
-MAX_CONDITION = 1e12
 
 
 @dataclass(frozen=True)
@@ -72,7 +69,7 @@ class InstrumentSpace:
 
 @dataclass(frozen=True)
 class EquationEstimate:
-    """One separate-GMM estimate and its inference diagnostics."""
+    """One structural estimate and its inference diagnostics."""
 
     estimate: float
     se: float
@@ -275,91 +272,6 @@ def _failed_equation(reason: str) -> EquationEstimate:
     )
 
 
-def _moment_covariance(
-    x: np.ndarray,
-    residual: np.ndarray,
-    sigma_hat: np.ndarray,
-    upsilon: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Oracle and generated-space-corrected influence-function covariances."""
-
-    t = x.shape[0]
-    mean_xb = np.mean(x * residual[:, None], axis=0)
-    oracle_if = x * residual[:, None] - mean_xb
-    direction = upsilon @ mean_xb
-    correction = x * (x @ direction)[:, None] - (sigma_hat @ direction)[None, :]
-    corrected_if = oracle_if + correction
-    oracle_if -= oracle_if.mean(axis=0)
-    corrected_if -= corrected_if.mean(axis=0)
-    return oracle_if.T @ oracle_if / t, corrected_if.T @ corrected_if / t
-
-
-def _separate_gmm(
-    x: np.ndarray,
-    outcome: np.ndarray,
-    regressor: np.ndarray,
-    space: InstrumentSpace,
-) -> EquationEstimate:
-    """One equation of Hahn's identity-then-optimal two-step GMM."""
-
-    a = space.basis
-    t = x.shape[0]
-    k = space.residual_dimension
-    if k <= 0:
-        return _failed_equation("no residual instrument dimension")
-    if space.information <= INFO_TOL * max(float(np.sum(regressor**2) / t), 1.0):
-        return _failed_equation("zero residual-space information")
-    if not np.isfinite(space.upsilon).all():
-        return _failed_equation("unseparated estimated eigenspace")
-
-    instruments = x @ a
-    derivative = np.mean(instruments * regressor[:, None], axis=0)
-    numerator = np.mean(instruments * outcome[:, None], axis=0)
-    derivative_norm2 = float(derivative @ derivative)
-    if derivative_norm2 <= INFO_TOL:
-        return _failed_equation("weak sample first stage")
-    preliminary = float(derivative @ numerator / derivative_norm2)
-    residual0 = outcome - preliminary * regressor
-    sigma_hat = x.T @ x / t
-    oracle_v, corrected_v = _moment_covariance(
-        x, residual0, sigma_hat, space.upsilon
-    )
-    v = corrected_v if space.estimated else oracle_v
-    v_a = 0.5 * (a.T @ v @ a + (a.T @ v @ a).T)
-    naive_v_a = 0.5 * (a.T @ oracle_v @ a + (a.T @ oracle_v @ a).T)
-
-    evals = np.linalg.eigvalsh(v_a)
-    if evals[-1] <= 0.0 or evals[0] <= evals[-1] / MAX_CONDITION:
-        return _failed_equation("singular or ill-conditioned moment covariance")
-    condition = float(evals[-1] / evals[0])
-    weight = np.linalg.inv(v_a)
-    weighted_strength = float(derivative @ weight @ derivative)
-    if weighted_strength <= INFO_TOL:
-        return _failed_equation("weak optimally weighted first stage")
-
-    estimate = float(derivative @ weight @ numerator / weighted_strength)
-    gamma = derivative @ weight / weighted_strength
-    se = float(np.sqrt(max(gamma @ v_a @ gamma, 0.0) / t))
-    naive_se = float(np.sqrt(max(gamma @ naive_v_a @ gamma, 0.0) / t))
-    moments = numerator - estimate * derivative
-    j_stat = float(t * moments @ weight @ moments)
-    j_df = k - 1
-    j_pvalue = float(chi2.sf(j_stat, j_df)) if j_df > 0 else float("nan")
-    return EquationEstimate(
-        estimate=estimate,
-        se=se,
-        naive_se=naive_se,
-        preliminary=preliminary,
-        j_stat=j_stat,
-        j_pvalue=j_pvalue,
-        j_df=j_df,
-        derivative_strength=float(np.sqrt(t * weighted_strength)),
-        covariance_condition=condition,
-        failed=False,
-        failure_reason="",
-    )
-
-
 def projected_weight(space: InstrumentSpace, aggregate_direction: np.ndarray) -> np.ndarray:
     """The aggregate-predicting instrument direction ``P d`` inside ``space``.
 
@@ -381,7 +293,6 @@ def scalar_iv(
     regressor: np.ndarray,
     *,
     upsilon: np.ndarray | None = None,
-    upsilon_factors: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> EquationEstimate:
     """Just-identified IV with the scalar instrument ``z_t = weight' x_t``.
 
@@ -390,9 +301,7 @@ def scalar_iv(
     reported standard error is the ordinary heteroskedasticity-robust one.
     With ``upsilon`` the weight is ``P_hat d`` for an estimated eigenspace and
     the standard error adds Hahn et al.'s generated-space term; ``naive_se``
-    then reports the fixed-weight value for comparison. ``upsilon_factors``
-    supplies the identical matrix as (directions, inverse eigengaps), avoiding
-    a dense N x N correction in the full-panel known-rank experiment.
+    then reports the fixed-weight value for comparison.
     """
 
     x = np.asarray(instruments, dtype=float)
@@ -402,14 +311,6 @@ def scalar_iv(
     if x.ndim != 2 or x.shape[1] != w.size or x.shape[0] != o.size or o.size != r.size:
         raise ValueError("instrument, weight, outcome and regressor dimensions disagree")
     t = x.shape[0]
-    if upsilon is not None and upsilon_factors is not None:
-        raise ValueError("supply either a dense or a factored eigenspace correction")
-    if upsilon_factors is not None:
-        factors, inverse_gaps = upsilon_factors
-        if factors.shape != (w.size, inverse_gaps.size):
-            raise ValueError("factored eigenspace correction dimensions disagree")
-        if not np.isfinite(factors).all() or not np.isfinite(inverse_gaps).all():
-            return _failed_equation("unseparated estimated eigenspace")
     if upsilon is not None and not np.isfinite(upsilon).all():
         return _failed_equation("unseparated estimated eigenspace")
     if float(w @ w) <= INFO_TOL:
@@ -430,17 +331,13 @@ def scalar_iv(
     oracle_if -= oracle_if.mean()
     oracle_var = float(np.mean(oracle_if**2))
     corrected_var = oracle_var
-    estimated = upsilon is not None or upsilon_factors is not None
-    if estimated:
+    if upsilon is not None:
         mean_xb = np.mean(x * residual[:, None], axis=0)
-        if upsilon_factors is None:
-            direction = upsilon @ mean_xb
-        else:
-            direction = factors @ (inverse_gaps * (factors.T @ mean_xb))
+        direction = upsilon @ mean_xb
         correction = z * (x @ direction)
         corrected_if = oracle_if + correction - correction.mean()
         corrected_var = float(np.mean(corrected_if**2))
-    variance = corrected_var if estimated else oracle_var
+    variance = corrected_var
     if not np.isfinite(variance) or variance <= 0.0 or oracle_var <= 0.0:
         return _failed_equation("singular scalar moment variance")
     se = float(np.sqrt(variance / t) / abs(derivative))
@@ -458,28 +355,6 @@ def scalar_iv(
         failed=False,
         failure_reason="",
     )
-
-
-def estimate_grouped_giv(
-    grouped_outcomes: np.ndarray,
-    price: np.ndarray,
-    aggregate: np.ndarray,
-    price_direction: np.ndarray,
-    aggregate_direction: np.ndarray,
-    space: InstrumentSpace,
-) -> GroupedGIVEstimate:
-    """Estimate ``(phi, psi)`` by separate two-step grouped GMM equations."""
-
-    x = np.asarray(grouped_outcomes, dtype=float)
-    p = np.asarray(price, dtype=float).reshape(-1)
-    y = np.asarray(aggregate, dtype=float).reshape(-1)
-    b = np.asarray(price_direction, dtype=float).reshape(-1)
-    if x.shape[0] != p.size or p.size != y.size or x.shape[1] != b.size:
-        raise ValueError("data dimensions disagree")
-    reference = x @ b / float(b @ b)
-    phi = _separate_gmm(x, reference, p, space)
-    psi = _separate_gmm(x, p, y, space)
-    return GroupedGIVEstimate(phi=phi, psi=psi, space=space)
 
 
 def joint_covariance_failure(sample_size: int, instrument_count: int) -> str:

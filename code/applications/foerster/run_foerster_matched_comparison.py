@@ -21,6 +21,7 @@ from mgp_core import (
     sample_cov,
     solve_grouped_mgp_dual,
 )
+from applications.networks import network_variance_matrix, reported_dynamic_share
 from applications.foerster.run_foerster_epsilon import (
     DEFAULT_CAP_RHO_CSV,
     DEFAULT_EPSILON_CSV,
@@ -28,9 +29,7 @@ from applications.foerster.run_foerster_epsilon import (
     DEFAULT_WEIGHTS_CSV,
     DEFAULT_XI_CSV,
     load_foerster_shocks_and_weights,
-    network_variance_matrix,
     read_network_matrix,
-    reported_dynamic_share,
 )
 
 

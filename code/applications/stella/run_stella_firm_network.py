@@ -24,7 +24,7 @@ from mgp_core import (
     make_panel_rng,
     sample_cov,
 )
-from applications.foerster.run_foerster_epsilon import (
+from applications.networks import (
     cap_dynamic_share_report,
     network_direct_diagonal_share,
     network_gradient_family,

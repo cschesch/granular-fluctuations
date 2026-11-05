@@ -138,20 +138,13 @@ def primitive_naive(prefix, summary):
 
 def main():
     values = []
-    memo = {}
     for label, stem, clean in ROWS:
         source = summary_path(stem)
         if source is None:
             continue
         prefix = source.stem.removesuffix('_summary')
         s = pd.read_pickle(source).iloc[0]
-        if clean and clean in memo:
-            benchmarks, denominator, moments_source = memo[clean]
-            assert np.isclose(denominator, s.aggregate_variance, rtol=1e-8)
-        else:
-            benchmarks, denominator, moments_source = cached_naive(clean, s) if clean else primitive_naive(prefix, s)
-            if clean:
-                memo[clean] = benchmarks, denominator, moments_source
+        benchmarks, denominator, moments_source = cached_naive(clean, s) if clean else primitive_naive(prefix, s)
         values.append(dict(label=label, prefix=prefix, estimate=s.mgp_share,
                            ci_low=s.moving_block_gradient_bootstrap_p05,
                            ci_high=s.moving_block_gradient_bootstrap_p95, **benchmarks,

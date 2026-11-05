@@ -14,7 +14,7 @@ from applications.atalay.run_atalay_epsilon import (
     DERIVED,
     load_atalay_panel,
 )
-from applications.foerster.run_foerster_epsilon import matrix_inner, network_observed_stats
+from applications.networks import matrix_inner, network_observed_stats
 
 
 WORKSPACE = DERIVED / "benchmark/atalay_eps_M_001.mat"

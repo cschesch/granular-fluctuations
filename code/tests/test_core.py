@@ -26,7 +26,7 @@ from mgp_core import (
     solve_grouped_mgp_dual,
     solve_primal_mtfa,
 )
-from applications.foerster.run_foerster_epsilon import (
+from applications.networks import (
     network_denominator,
     network_direct_diagonal_share,
     network_share_from_covariances,

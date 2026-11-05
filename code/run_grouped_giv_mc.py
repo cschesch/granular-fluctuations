@@ -189,11 +189,8 @@ def main():
         print(f"FIXED_N_PROGRESS {status['completed']}/{mc.REPS}: {status['elapsed_seconds']:.1f}s",flush=True)
     all_draws=pd.concat([old,pd.DataFrame(rows)],ignore_index=True)
     summary=pd.concat([mc.summarize(old,1000),mc.summarize(pd.DataFrame(rows),mc.REPS)],ignore_index=True)
-    populations=[mc.build_population(n,t,d) for d in mc.DESIGNS for n,t in CELLS]
-    designs=mc.design_summary(populations,all_draws)
     atomic_write_pickle(all_draws,RUN_OUTPUT_CACHE/'grouped_giv_mc_draws.pkl')
     atomic_write_pickle(summary,RUN_OUTPUT_CACHE/'grouped_giv_mc_summary.pkl')
-    atomic_write_pickle(designs,RUN_OUTPUT_CACHE/'grouped_giv_mc_designs.pkl')
     mc.write_combined_table(summary,OUTPUT_DIR/'table_grouped_giv_mc_combined_tabular.tex')
     print(summary[['N','T','method','psi_bias','psi_sd','psi_coverage','phi_bias','phi_sd','phi_coverage']].to_string(index=False),flush=True)
 

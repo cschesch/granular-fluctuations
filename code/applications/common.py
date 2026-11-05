@@ -13,8 +13,6 @@ from mgp_core import (
     analysis_block_length,
     build_lpt_grouped_data,
     mgp_share,
-    regularity_report,
-    sample_cov,
     standardize_panel,
 )
 
@@ -83,7 +81,6 @@ def estimate(
     yv = app.relative_outcomes(y, sizes).to_numpy(float)
     grouped, _, _, _ = build_lpt_grouped_data(yv, shares, m)
     result = mgp_share(grouped, solver)
-    reg = regularity_report(sample_cov(grouped), solver)
     rng = np.random.default_rng(np.random.SeedSequence([seed, *app.entity.encode("utf-8")]))
     bootstrap = GB.moving_block_gradient_ci(
         grouped, b=bootstrap_b, block_length=block_length, rng=rng, solver=solver
@@ -106,7 +103,7 @@ def estimate(
         "CI90_low": bootstrap["ci_low"], "CI90_high": bootstrap["ci_high"],
         "UCL95": bootstrap["ucl95"], "Bootstrap_B": bootstrap_b,
         "Block_length": block_length, "Dependence_horizon": app.dependence_horizon,
-        "Common_rank": reg["common_rank"], "Regular": reg["regular"], "Solver": result["solver"],
+        "Solver": result["solver"],
         "Notes": app.notes,
         "Aggregation": app.aggregation,
     }

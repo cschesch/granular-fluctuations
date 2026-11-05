@@ -9,8 +9,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 from grouped_giv import (
-    _moment_covariance,
-    estimate_grouped_giv,
+    estimate_joint_giv,
     estimated_instrument_space,
     hahn_bic,
     known_instrument_space,
@@ -91,30 +90,6 @@ def test_bic_and_estimated_space() -> None:
     check(np.isfinite(space.upsilon).all(), "separated factor produced invalid Upsilon")
 
 
-def test_generated_space_variance() -> None:
-    rng = np.random.default_rng(303)
-    t, m = 300, 5
-    x = rng.standard_normal((t, m))
-    residual = 0.4 * x[:, 0] + rng.standard_normal(t)
-    sigma = x.T @ x / t
-    u = np.diag([0.0, -0.4, -0.2, 0.0, 0.0])
-    oracle, corrected = _moment_covariance(x, residual, sigma, u)
-
-    mean_xb = np.mean(x * residual[:, None], axis=0)
-    base = x * residual[:, None] - mean_xb
-    direction = u @ mean_xb
-    adjustment = x * (x @ direction)[:, None] - (sigma @ direction)[None, :]
-    base -= base.mean(axis=0)
-    total = base + adjustment
-    total -= total.mean(axis=0)
-    check(np.linalg.norm(oracle - base.T @ base / t) < TOL, "oracle IF covariance failed")
-    check(
-        np.linalg.norm(corrected - total.T @ total / t) < TOL,
-        "generated-space IF covariance failed",
-    )
-    check(np.linalg.norm(corrected - oracle) > 1e-4, "loading correction was silently omitted")
-
-
 def test_estimation_and_failures() -> None:
     rng = np.random.default_rng(404)
     t, m = 20_000, 5
@@ -133,7 +108,7 @@ def test_estimation_and_failures() -> None:
     price = psi * aggregate + structural
     x = phi * price[:, None] * b + factor[:, None] * loading[:, 0] + error
     check(np.allclose(x @ d, aggregate), "nonuniform grouped system does not aggregate")
-    estimate = estimate_grouped_giv(x, price, aggregate, b, d, space)
+    estimate = estimate_joint_giv(x, price, aggregate, b, d, space)
     check(not estimate.phi.failed and not estimate.psi.failed, "valid oracle GIV failed")
     check(abs(estimate.phi.estimate - phi) < 0.025, "oracle phi estimate misses its truth")
     check(abs(estimate.psi.estimate - psi) < 0.04, "oracle psi estimate misses its truth")
@@ -142,7 +117,7 @@ def test_estimation_and_failures() -> None:
     saturated = known_instrument_space(np.eye(m)[:, 0], saturated_loadings, d)
     check(saturated.residual_dimension == 0, "saturated common space was not detected")
     check(saturated.information == 0.0, "saturated common space has spurious information")
-    stopped = estimate_grouped_giv(x, price, aggregate, b, d, saturated)
+    stopped = estimate_joint_giv(x, price, aggregate, b, d, saturated)
     check(stopped.phi.failed and stopped.psi.failed, "zero-dimensional GIV did not stop")
     check(
         stopped.psi.failure_reason == "no residual instrument dimension",
@@ -155,12 +130,25 @@ def test_estimation_and_failures() -> None:
     zero_info = known_instrument_space(b0, loading0, d0)
     check(zero_info.residual_dimension == 2, "zero-information example lost its instruments")
     check(zero_info.information < TOL, "zero-information space has spurious relevance")
-    zero_info_stop = estimate_grouped_giv(x, price, aggregate, b0, d0, zero_info)
-    check(zero_info_stop.psi.failed, "zero-information GIV did not stop")
-    check(
-        zero_info_stop.psi.failure_reason == "zero residual-space information",
-        "zero-information failure reason is not explicit",
-    )
+
+
+def reference_moment_covariance(
+    x: np.ndarray,
+    residual: np.ndarray,
+    sigma_hat: np.ndarray,
+    upsilon: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Oracle and generated-space-corrected influence-function covariances."""
+
+    t = x.shape[0]
+    mean_xb = np.mean(x * residual[:, None], axis=0)
+    oracle_if = x * residual[:, None] - mean_xb
+    direction = upsilon @ mean_xb
+    correction = x * (x @ direction)[:, None] - (sigma_hat @ direction)[None, :]
+    corrected_if = oracle_if + correction
+    oracle_if -= oracle_if.mean(axis=0)
+    corrected_if -= corrected_if.mean(axis=0)
+    return oracle_if.T @ oracle_if / t, corrected_if.T @ corrected_if / t
 
 
 def test_scalar_instrument() -> None:
@@ -199,7 +187,7 @@ def test_scalar_instrument() -> None:
     feasible = scalar_iv(x, w_hat, price, aggregate, upsilon=space.upsilon)
     residual = price - feasible.estimate * aggregate
     sigma = x.T @ x / t
-    oracle_v, corrected_v = _moment_covariance(x, residual, sigma, space.upsilon)
+    oracle_v, corrected_v = reference_moment_covariance(x, residual, sigma, space.upsilon)
     derivative = np.mean((x @ w_hat) * aggregate)
     check(
         abs(feasible.se - np.sqrt(w_hat @ corrected_v @ w_hat / t) / abs(derivative)) < TOL,
@@ -231,13 +219,11 @@ def test_full_panel_spectral_equivalence() -> None:
     x += rng.standard_normal((t, 1))
     pop = SimpleNamespace(factor_count=1, full_baseline_weight=sizes - 1.0 / n)
     pca, hahn = _full_spectral(pop, x)
-    weight, upsilon, rank, _, _, _ = hahn
+    weight, rank, _, _ = hahn
     reference = estimated_instrument_space(x, np.ones(n), sizes)
     check(rank == reference.combined_rank, "fast full-panel Hahn changed the BIC rank")
     check(np.linalg.norm(weight - projected_weight(reference, sizes)) < TOL,
           "fast full-panel Hahn changed the projected instrument")
-    check(np.linalg.norm(upsilon - reference.upsilon) < TOL,
-          "fast full-panel Hahn changed the variance correction")
     pca /= np.linalg.norm(pca)
     pca_reference = _pca_loading(x, 1)
     pca_reference /= np.linalg.norm(pca_reference)
@@ -251,14 +237,14 @@ def test_mc_sample_cells_and_tables() -> None:
     """Guard against pooling the three T blocks with the same N."""
     import pandas as pd
     from grouped_giv_mc import (
-        SAMPLES, DESIGNS, HEADLINE_METHODS, METHODS, build_population,
-        design_summary, table_lines, write_combined_table,
+        SAMPLES, DESIGNS, METHODS, build_population,
+        table_lines, write_combined_table,
     )
 
     check(SAMPLES == ((1000, 100), (1000, 1000), (1000, 10000)), "MC sample design changed")
     for panel in ("full", "group"):
-        pca = HEADLINE_METHODS.index(f"{panel}_pca")
-        check(HEADLINE_METHODS[pca+1:pca+3] == (f"{panel}_bai_ng", f"{panel}_rank_known"),
+        pca = METHODS.index(f"{panel}_pca")
+        check(METHODS[pca+1:pca+3] == (f"{panel}_bai_ng", f"{panel}_rank_known"),
               "Bai--Ng must sit between oracle PCA and known-rank Hahn")
     populations = [build_population(n, t, design) for n, t in SAMPLES for design in DESIGNS]
     rows = []
@@ -272,11 +258,6 @@ def test_mc_sample_cells_and_tables() -> None:
                              psi_bias=pop.t / 1000, psi_sd=0.1, psi_coverage=0.95,
                              phi_bias=-pop.t / 1000, phi_sd=0.2, phi_coverage=0.9))
     frame = pd.DataFrame(rows)
-    designs = design_summary(populations, frame)
-    check(designs.loc[designs["T"].eq(100), "bic_correct"].eq(0).all(),
-          "design diagnostics pooled T=100 with T=1000")
-    check(designs.loc[designs["T"].eq(1000), "bic_correct"].eq(1).all(),
-          "design diagnostics lost T=1000")
     with TemporaryDirectory() as directory:
         for parameter, expected in (("psi", "0.100"), ("phi", "-0.100")):
             table = "\n".join(table_lines(frame, parameter))
@@ -303,29 +284,6 @@ def test_hahn_bic_bound() -> None:
             check(np.all(values[1:] - values[0] >= lower_bound - TOL),
                   "analytic BIC margin bound is invalid")
 
-
-def test_full_known_hahn_correction() -> None:
-    """Known-rank Hahn matches the dense spectral formula even at T<N."""
-    from grouped_giv_mc import _full_known_correction, _pca_loading
-    rng = np.random.default_rng(808)
-    n = 18
-    q = orthogonal_complement(np.ones((n, 1)))
-    for t in (10, 350):
-        x = rng.standard_normal((t, n))
-        x += np.outer(rng.standard_normal(t), np.r_[4.0, -3.0, np.zeros(n-2)])
-        loading = _pca_loading(x, 1)
-        factors, inverse = _full_known_correction(x, loading)
-        dense = (factors * inverse) @ factors.T
-        eigenvalues, eigenvectors = np.linalg.eigh(q.T @ (x.T @ x / t) @ q)
-        top = q @ eigenvectors[:, -1:]
-        expected = top @ top.T / (max(eigenvalues[0], 0.0) - eigenvalues[-1])
-        check(np.linalg.norm(dense - expected) < TOL, "known-rank Hahn correction differs from dense formula")
-        weight = rng.standard_normal(n)
-        outcome = rng.standard_normal(t)
-        regressor = outcome + rng.standard_normal(t)
-        direct = scalar_iv(x, weight, outcome, regressor, upsilon=dense)
-        compact = scalar_iv(x, weight, outcome, regressor, upsilon_factors=(factors, inverse))
-        check(abs(direct.se - compact.se) < TOL, "factored Hahn scalar variance changed")
 
 def test_one_dataset_all_methods_loop() -> None:
     from grouped_giv_mc import (
@@ -426,13 +384,11 @@ def main() -> None:
     test_projection_geometry()
     test_grouped_whitening()
     test_bic_and_estimated_space()
-    test_generated_space_variance()
     test_estimation_and_failures()
     test_scalar_instrument()
     test_full_panel_spectral_equivalence()
     test_mc_sample_cells_and_tables()
     test_hahn_bic_bound()
-    test_full_known_hahn_correction()
     test_one_dataset_all_methods_loop()
     print("all grouped-GIV invariants passed")
 

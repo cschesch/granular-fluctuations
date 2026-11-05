@@ -26,7 +26,7 @@ from mgp_core import (
     regularity_report,
     sample_cov,
 )
-from applications.foerster.run_foerster_epsilon import (
+from applications.networks import (
     cap_dynamic_share_report,
     network_gradient_family,
     network_observed_stats,

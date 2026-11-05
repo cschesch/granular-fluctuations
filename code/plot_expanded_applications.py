@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from compute_applications_coefficients import CACHE, core_estimates, summary_path, summary_rows
-from applications.figure_layout import HIERARCHY, hierarchy_positions, tick_labels
+from applications.figure_layout import HIERARCHY, hierarchy_positions, format_application_rows, format_share_axis
 from applications.registry import PANEL_ENTITIES
 from mgp_core import OUTPUT_DIR as OUT
 import matplotlib
@@ -106,30 +106,8 @@ def main():
             ax.plot(min(100, 100*row["homoskedastic"]), p, "D", color="#d62728", ms=5.8,
                     clip_on=False, zorder=5)
 
-    ax.set_yticks(list(positions.values()), tick_labels(positions), fontsize=12)
-    ax.tick_params(axis="y", length=0, pad=4)
-    for label in ax.get_yticklabels():
-        label.set_horizontalalignment("right")
-    for section, yp in headings:
-        ax.text(-.012, yp, section, transform=ax.get_yaxis_transform(), ha="right", va="center",
-                fontweight="bold", fontsize=12.2, clip_on=False)
-
-    ax.set_xlim(0, 100)
-    ax.set_xticks(range(0, 101, 20), [f"{x}%" for x in range(0, 101, 20)], fontsize=11.5)
-    ax.set_xticks(range(5, 100, 5), minor=True)
-    ax.set_ylim(ymax-.25, -.45)
-    ax.set_xlabel("Granular share of aggregate fluctuations", fontsize=12)
-    ax.grid(False)
-    for x in range(5, 100, 5):
-        if x % 20 == 0:
-            color, linewidth, linestyle = "0.82", .72, "--"
-        elif x % 10 == 0:
-            color, linewidth, linestyle = "0.88", .66, "--"
-        else:
-            color, linewidth, linestyle = "0.91", .62, ":"
-        ax.axvline(x, color=color, linestyle=linestyle, linewidth=linewidth, zorder=0)
-    for spine in ax.spines.values():
-        spine.set_visible(True); spine.set_color("0.25"); spine.set_linewidth(.8)
+    format_application_rows(ax, positions, headings, ymax)
+    format_share_axis(ax)
     ax.legend(handles=[
         Line2D([0], [0], marker="D", color="#d62728", lw=0, markersize=5.8,
                label="Naive estimate"),

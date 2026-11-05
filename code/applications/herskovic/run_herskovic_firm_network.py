@@ -27,7 +27,7 @@ from mgp_core import (
     read_clean_panel_cache, write_clean_panel_cache, sample_cov,
 )
 from project_paths import DERIVED_CACHE, upstream
-from applications.foerster.run_foerster_epsilon import (
+from applications.networks import (
     cap_dynamic_share_report, network_direct_diagonal_share,
     network_gradient_family, network_observed_stats,
 )

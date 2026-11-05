@@ -37,8 +37,6 @@ from mgp_core import (
     choose_solver,
     make_panel_rng,
     mgp_share,
-    regularity_report,
-    sample_cov,
 )
 from wrds_inputs import ANALYSIS_LAST_QUARTER, wrds_path
 from project_paths import DERIVED_CACHE, ROOT, available, data_file
@@ -142,7 +140,6 @@ def run_panel(
     )
     x_grouped, _, loads, _ = build_lpt_grouped_data(y_np, shares, m)
     observed = mgp_share(x_grouped, solver)
-    regularity = regularity_report(sample_cov(x_grouped), solver)
     hhi = float(np.sum(shares**2))
     print(
         f"[{panel.name}] observed share={observed['mgp_share']:.4f}, "
@@ -196,16 +193,6 @@ def run_panel(
         "aggregate_variance": observed["aggregate_variance"],
         "se_share": observed["se_share"],
         "normal_ucl95": observed["normal_ucl95"],
-        "ledermann_kbar": regularity["ledermann_kbar"],
-        "common_rank": regularity["common_rank"],
-        "regular": regularity["regular"],
-        "corank": regularity["corank"],
-        "tight": regularity["tight"],
-        "corank_threshold_2sqrtM": regularity["corank_threshold_2sqrtM"],
-        "rank_gap_ratio": regularity["rank_gap_ratio"],
-        "gap_dmax_over_dbar": regularity["gap_dmax_over_dbar"],
-        "gap_hmax": regularity["gap_hmax"],
-        "gap_bound_factor": regularity["gap_bound_factor"],
         "gradient_bootstrap_p05": gradient_family.get("gradient_low", np.nan),
         "gradient_bootstrap_p95": gradient_family.get("gradient_high", np.nan),
         "moving_block_gradient_bootstrap_p05": gradient_family.get("block_gradient_low", np.nan),

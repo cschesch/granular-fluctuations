@@ -61,7 +61,7 @@ from mgp_core import (
     choose_solver,
     mean_pairwise_correlation,
 )
-from applications.foerster.run_foerster_epsilon import network_observed_stats
+from applications.networks import network_observed_stats
 
 
 PROFILE_ROOT = ROOT / "code/.cache/derived/atalay2017/elasticity_profile"

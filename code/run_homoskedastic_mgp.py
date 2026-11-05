@@ -26,8 +26,9 @@ from mgp_core import OUTPUT_DIR as OUT, align_sizes_to_panel, build_lpt_grouped_
 from gradient_bootstrap import _ci, moving_block_indices
 from near_optimal import delta_rate
 from compute_applications_coefficients import CACHE, clean_panel_moments, summary_path, available_items
-from applications.figure_layout import HIERARCHY, hierarchy_positions, tick_labels
+from applications.figure_layout import HIERARCHY, hierarchy_positions, format_application_rows, format_share_axis
 from applications.registry import panel_loaders, innovation_loaders
+from applications.networks import network_variance_matrix
 from applications.stella.paths import CALIBRATION
 # Imported after mgp_core, which points MPLCONFIGDIR at a writable cache.
 import matplotlib
@@ -151,7 +152,7 @@ def network_rows(seed, available):
         n = f.y.shape[0]
         mats = [foerster.read_network_matrix(p, n, nm) for p, nm in [(foerster.DEFAULT_PII_A_CSV, "Pi_a"), (foerster.DEFAULT_XI_CSV, "Xi"), (foerster.DEFAULT_CAP_RHO_CSV, "cap_rho")]]
         initial = f.sizes.reindex(f.y.index).astype(float)
-        V = foerster.network_variance_matrix(initial.to_numpy(float), *mats)
+        V = network_variance_matrix(initial.to_numpy(float), *mats)
         nsizes = pd.Series(np.sqrt(np.maximum(np.diag(V), 0)), index=f.y.index)
         y, sizes = align_sizes_to_panel(f.y, nsizes)
         order = [int(str(i).split("_")[-1]) - 1 for i in y.index]; Vs = V[np.ix_(order, order)]
@@ -235,17 +236,8 @@ def plot() -> None:
                 ax.plot(100*min(1, q.hmgp), p + OFF, "s", color="#2ca02c", ms=5.0, zorder=4)
             if np.isfinite(r.homoskedastic):
                 ax.plot(min(100, 100*r.homoskedastic), p, "D", color="#d62728", ms=5.4, clip_on=False, zorder=5)
-    ax.set_yticks(list(positions.values()), tick_labels(positions), fontsize=12)
-    ax.tick_params(axis="y", length=0, pad=4)
-    for lab in ax.get_yticklabels(): lab.set_horizontalalignment("right")
-    for section, yp in headings:
-        ax.text(-.012, yp, section, transform=ax.get_yaxis_transform(), ha="right", va="center", fontweight="bold", fontsize=12.2, clip_on=False)
-    ax.set_xlim(0, 100); ax.set_xticks(range(0, 101, 20), [f"{x}%" for x in range(0, 101, 20)], fontsize=11.5); ax.set_xticks(range(5, 100, 5), minor=True)
-    ax.set_ylim(ymax - .25, -.45); ax.set_xlabel("Granular share of aggregate fluctuations", fontsize=12); ax.grid(False)
-    for x in range(5, 100, 5):
-        c, w, ls = ("0.82", .72, "--") if x % 20 == 0 else ("0.88", .66, "--") if x % 10 == 0 else ("0.91", .62, ":")
-        ax.axvline(x, color=c, linestyle=ls, linewidth=w, zorder=0)
-    for sp in ax.spines.values(): sp.set_visible(True); sp.set_color("0.25"); sp.set_linewidth(.8)
+    format_application_rows(ax, positions, headings, ymax)
+    format_share_axis(ax)
     ax.legend(handles=[Line2D([0], [0], marker="D", color="#d62728", lw=0, markersize=5.4, label="Naive estimate"),
                        Line2D([0], [0], marker="o", color="#1f77b4", lw=2, markersize=5.0, label="Heteroskedastic ceiling"),
                        Line2D([0], [0], marker="s", color="#2ca02c", lw=2, markersize=5.0, label="Homoskedastic ceiling")],

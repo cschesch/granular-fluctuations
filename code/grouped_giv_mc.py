@@ -53,21 +53,19 @@ MC_SEED = 0
 CI_CRITICAL = 1.96
 BAI_NG_MAX_FACTORS = 5
 
-HEADLINE_DESIGNS = ("core_weak",)
-DESIGNS = HEADLINE_DESIGNS
+DESIGNS = ("core_weak",)
 DESIGN_LABEL = {
     "core_weak": "Weak factor on the three largest units",
 }
 
-HEADLINE_METHODS = (
+METHODS = (
     "full_oracle", "full_pca", "full_bai_ng", "full_rank_known", "full_hahn",
     "group_oracle", "group_pca", "group_bai_ng", "group_rank_known", "group_feasible",
 )
-METHODS = HEADLINE_METHODS
 BAI_NG_METHODS = ("full_bai_ng", "group_bai_ng")
 METHOD_LABEL = {
     method: label
-    for methods in (HEADLINE_METHODS[:5], HEADLINE_METHODS[5:])
+    for methods in (METHODS[:5], METHODS[5:])
     for method, label in zip(methods, ("Oracle factor loadings", "Oracle factor count + PCA",
                                       "Bai--Ng + PCA",
                                       "Oracle factor count + Hahn et al.", "Feasible Hahn et al."))
@@ -256,46 +254,12 @@ def _full_spectral(pop: Population, x: np.ndarray) -> tuple[np.ndarray, tuple | 
     if rank > 1:
         factors = directions[:, -(rank - 1):]
         weight -= factors @ (factors.T @ weight)
-        denominators = eigvals[0] - eigvals[-(rank - 1):]
-        upsilon = (factors / denominators) @ factors.T
         gap = float(eigvals[-(rank - 1)] - eigvals[0])
     else:
-        upsilon = None  # the correction is identically zero at combined rank one
         gap = float("nan")
     ordered_bic = np.sort(bic)
     margin = float(ordered_bic[1] - ordered_bic[0])
-    return pca, (weight, upsilon, rank, gap, margin, float(eigvals[0]))
-
-
-def _full_known_correction(
-    x: np.ndarray, pca_loadings: np.ndarray, sample_noise: float | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Hahn's Upsilon as leading directions and inverse sample eigengaps.
-
-    The minimum projected sample eigenvalue is exactly zero for T<N-1.
-    This does not prevent inversion of its gaps to positive leading spikes.
-    For T>=N-1 evaluate the minimum eigenvalue of the restricted covariance.
-    """
-    t, n = x.shape
-    if pca_loadings.shape[1] == 0:
-        return np.empty((n, 0)), np.empty(0)
-    lengths = np.linalg.norm(pca_loadings, axis=0)
-    factors = pca_loadings / lengths
-    leading = lengths**2 / t
-    if sample_noise is not None:
-        noise = sample_noise
-    elif t < n - 1:
-        noise = 0.0
-    else:
-        v = np.ones(n) / math.sqrt(n)
-        v[0] += 1.0
-        v /= np.linalg.norm(v)
-        restricted = x[:, 1:] - np.outer(x @ v, 2.0 * v[1:])
-        covariance = restricted.T @ restricted / t
-        noise = float(sla.eigh(covariance, eigvals_only=True, subset_by_index=[0, 0])[0])
-        noise = max(noise, 0.0)
-    inverse_gaps = 1.0 / (noise - leading)
-    return factors, inverse_gaps
+    return pca, (weight, rank, gap, margin)
 
 
 def _record(
@@ -496,7 +460,7 @@ def simulate_cell(pop: Population, reps: int, rng: np.random.Generator) -> list[
             selected_rank, information = -1, float("nan")
             gap = margin = float("nan")
         else:
-            weight, upsilon, selected_rank, gap, margin, _ = hahn
+            weight, selected_rank, gap, margin = hahn
             information = float(weight @ weight)
             reason = joint_covariance_failure(t, n - selected_rank)
             if reason:
@@ -642,29 +606,6 @@ def summarize(draws: pd.DataFrame, reps: int) -> pd.DataFrame:
     return summary.sort_values(["design_order", "N", "T", "method_order"]).reset_index(drop=True)
 
 
-def design_summary(populations: list[Population], draws: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    for pop in populations:
-        row = {"design": pop.name, "design_label": DESIGN_LABEL[pop.name], **pop.diagnostics}
-        cell = draws["design"].eq(pop.name) & draws["N"].eq(pop.n) & draws["T"].eq(pop.t)
-        feasible = draws[cell & draws["method"].eq("group_feasible")]
-        full_hahn = draws[cell & draws["method"].eq("full_hahn")]
-        pca = draws[cell & draws["method"].eq("full_pca")]
-        row["bic_correct"] = float(feasible["rank_correct"].mean())
-        row["bic_factor_selected"] = float(feasible["selected_rank"].ge(2).mean())
-        row["median_sample_eigengap"] = float(feasible["eigengap"].median())
-        row["median_bic_margin"] = float(feasible["bic_margin"].median())
-        row["mean_pca_overlap"] = float(pca["pca_overlap"].mean())
-        row["mean_pca_factor_leak"] = float(pca["factor_leak"].mean())
-        row["full_hahn_available"] = bool(full_hahn["selected_rank"].ge(1).any())
-        row["full_hahn_factor_selected"] = (
-            float(full_hahn["selected_rank"].ge(2).mean())
-            if row["full_hahn_available"] else float("nan")
-        )
-        rows.append(row)
-    return pd.DataFrame(rows)
-
-
 def _fmt(value: float, decimals: int = 3, *, percent: bool = False) -> str:
     if not np.isfinite(value):
         return "--"
@@ -694,8 +635,8 @@ def table_lines(summary: pd.DataFrame, parameter: str) -> list[str]:
         "& " + " & ".join(["Bias & SD & Coverage"] * len(blocks)) + r" \\",
         r"\midrule",
     ]
-    for design_index, design in enumerate(HEADLINE_DESIGNS):
-        for method in HEADLINE_METHODS:
+    for design_index, design in enumerate(DESIGNS):
+        for method in METHODS:
             if method in ("full_oracle", "group_oracle"):
                 if method == "group_oracle":
                     lines.append(r"\addlinespace")
@@ -716,7 +657,7 @@ def table_lines(summary: pd.DataFrame, parameter: str) -> list[str]:
                         _fmt(row[f"{parameter}_coverage"], 1, percent=True),
                     ])
             lines.append(" & ".join(cells) + r" \\")
-        if design_index < len(HEADLINE_DESIGNS) - 1:
+        if design_index < len(DESIGNS) - 1:
             lines.append(r"\addlinespace")
     lines.extend([r"\bottomrule", r"\end{tabular}"])
     return lines
