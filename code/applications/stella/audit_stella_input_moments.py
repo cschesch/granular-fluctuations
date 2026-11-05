@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Render the appendix comparison of Stella's inputs with the reconstruction."""
+
+import argparse
+import json
+
+import pandas as pd
+
+from applications.stella.audit_stella_growth_moments import growth_moments
+from mgp_core import ROOT, RUN_OUTPUT_CACHE
+
+
+BASE = ROOT / "code/.cache/firm_networks"
+TABLE = ROOT / "output/table_stella_input_moments.tex"
+
+# Each row gives the label, source key, published value, and display format.
+SECTIONS = (
+    ("Sample", (
+        ("Selected unbalanced firms", "current_vintage_top500_union_after_adf", 1610, ",.0f"),
+        ("Balanced firms", "mapped_with_employment", 234, ",.0f"),
+        ("Balanced share of sales", "current_vintage_selected_mean_share_of_unbalanced_sales", .45, ".2%"),
+    )),
+    ("Sparse customer network", (
+        ("Suppliers with a matched client", "baseline_firms_with_clients", 58, ",.0f"),
+        ("Suppliers with a positive calibrated link", "baseline_firms_with_clients_positive_calibrated_share", 58, ",.0f"),
+        ("Mean total input share", "baseline_mean_total_input_share", .02, ".2%"),
+        ("Median total input share", "baseline_median_total_input_share", 0, ".2%"),
+    )),
+    ("Dense sector-based network", (
+        ("Firms with counterparties", "dense_firms_with_suppliers", 234, ",.0f"),
+        ("Median column degree (suppliers)", "dense_median_suppliers", 215, ",.0f"),
+        ("Minimum column degree (suppliers)", "dense_min_suppliers", 190, ",.0f"),
+        ("Median row degree (clients)", "dense_median_clients", 215, ",.0f"),
+        ("Minimum row degree (clients)", "dense_min_clients", 190, ",.0f"),
+        ("Mean total input share", "dense_mean_total_input_share", .09, ".2%"),
+        ("Median total input share", "dense_median_total_input_share", .06, ".2%"),
+    )),
+    ("Growth moments", (
+        ("SD of aggregate sales growth (pp)", "aggregate_growth_pct", 2.56, ".2f"),
+        ("SD of continuing-firm contribution (pp)", "continuing_contribution_pp", 2.21, ".2f"),
+        ("SD of entry contribution (pp)", "entry_contribution_pp", 1.02, ".2f"),
+        ("SD of exit contribution (pp)", "exit_contribution_pp", .52, ".2f"),
+        ("GDP correlation: nominal sales", "top500_nominal_sales_gdp_correlation", .39, ".2f"),
+        ("GDP correlation: real sales", "top500_real_sales_gdp_correlation", .39, ".2f"),
+    )),
+)
+
+# Stella gives one number for suppliers with clients and one for the GDP correlation.
+SHARED_TARGETS = {
+    "baseline_firms_with_clients": r"\multirow{2}{*}{58}",
+    "baseline_firms_with_clients_positive_calibrated_share": "",
+    "top500_nominal_sales_gdp_correlation": r"\multirow{2}{*}{0.39}",
+    "top500_real_sales_gdp_correlation": "",
+}
+
+
+def reconstructed_moments():
+    calibration = BASE / "stella_revtq"
+    moments = json.loads((calibration / "diagnostics.json").read_text())
+    dense = pd.read_csv(calibration / "matrix_io_dense_economic_labeled.csv", index_col=0).gt(0)
+    clients = dense.sum(axis=1)
+    return {
+        **moments,
+        "dense_median_clients": clients.median(),
+        "dense_min_clients": clients.min(),
+        **growth_moments(BASE / "stella_revtq_unbalanced"),
+    }
+
+
+def render_table(moments):
+    lines = [
+        r"\begin{tabular}{@{}p{0.48\linewidth}rr@{}}",
+        r"\toprule",
+        r"Moment & Stella & Reconstruction\\",
+        r"\midrule",
+    ]
+    rows = []
+    for section, specifications in SECTIONS:
+        if rows:
+            lines.append(r"\addlinespace[0.35em]")
+        lines.append(r"\multicolumn{3}{@{}l@{}}{\textit{" + section + r"}}\\")
+        for label, key, published, spec in specifications:
+            target = SHARED_TARGETS.get(key)
+            if target is None:
+                target = (
+                    rf"$\simeq{published:.0%}$".replace("%", r"\%")
+                    if spec.endswith("%") else format(published, spec)
+                )
+            value = None if moments is None else moments[key]
+            displayed = "" if value is None else format(value, spec).replace("%", r"\%")
+            target_cell = f" {target}" if target else ""
+            lines.append(f"{label} &{target_cell} & {displayed}" + r"\\")
+            rows.append(dict(section=section, moment=label, source_key=key,
+                             published=published, current_revtq=value))
+    lines.extend([r"\bottomrule", r"\end{tabular}", ""])
+    return "\n".join(lines), pd.DataFrame(rows)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--blank", action="store_true", help="Leave reconstruction cells empty.")
+    args = parser.parse_args()
+    latex, summary = render_table(None if args.blank else reconstructed_moments())
+    TABLE.parent.mkdir(parents=True, exist_ok=True)
+    TABLE.write_text(latex)
+    RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
+    summary.to_pickle(RUN_OUTPUT_CACHE / "stella_input_moment_comparison.pkl")
+
+
+if __name__ == "__main__":
+    main()

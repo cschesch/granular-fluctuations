@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Compare alternative partitions on Compustat and the inference baseline.
+
+The simulated column averages 1000 loading draws at N=1000, zeta=1, r=3,
+seed=20260901 and planted granularity 3%. Sizes and idiosyncratic variances
+are fixed. Each loading draw is shared by all grouping schemes; the first
+reproduces the inference baseline.
+Compustat retains the headline quarterly nominal-sales panel unchanged.
+
+Optimal denotes a partition minimizing squared bucket-load dispersion.
+For the paper specification (M=10), the synthetic partition is fixed and
+certified, and Compustat uses a certified CP-SAT partition.
+All schemes preserve the same aggregate covariance. This comparison concerns
+the predetermined size-only balance objective, not optimization of the MGP.
+
+Writes output/table_grouping_schemes_mc_new_tabular.tex and
+code/.cache/run_outputs/grouping_schemes_mc_new.csv. Never edits main.tex.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from fractions import Fraction
+
+import numpy as np
+import pandas as pd
+
+from compare_grouping_tolerance import (
+    TOLERANCE, certified_compustat_allocation, exact_lower_bound, squared_load_objective,
+)
+import grouping_schemes as gs
+import inference_mc as mc
+from mgp_core import (
+    OUTPUT_DIR,
+    RUN_OUTPUT_CACHE,
+    choose_solver,
+    mgp_share,
+)
+from applications.compustat import run_compustat_quarterly as rq
+from project_paths import ROOT
+from wrds_inputs import ANALYSIS_LAST_QUARTER, wrds_path
+
+M = 10
+# Allow for the integer solver's rounding when checking load balance.
+MAX_ACCEPTABLE_GAP = 1e-6
+MAX_DISCRETIZATION_SLACK = 1e-5
+
+SCHEMES = [
+    ("core_fringe", "Core + fringe", gs.core_fringe_buckets),
+    ("round_robin", "Round-robin", gs.round_robin_buckets),
+    ("lpt", "LPT", gs.lpt_buckets),
+    ("h2_optimal", "Optimal", None),
+]
+
+
+def load_sales_panel() -> rq.PanelData:
+    """Load the headline quarterly sales panel."""
+    args = argparse.Namespace(
+        T=100, M=M, coverage_threshold=0.8, last_date=ANALYSIS_LAST_QUARTER,
+        compustat_csv=wrds_path("compustat_quarterly_sales"),
+        use_panel_cache=True, refresh_panel_cache=False,
+    )
+    return rq.load_compustat_panel(args)
+
+
+def compustat_ceiling(y: np.ndarray, shares: np.ndarray,
+                      buckets: list[list[int]], solver: str) -> tuple[float, float]:
+    """Estimated grouped ceiling and aggregate variance under ``buckets``, as
+    ``build_lpt_grouped_data`` would compute them for LPT, but for any partition."""
+    grouping = np.zeros((len(buckets), shares.size))
+    for j, bucket in enumerate(buckets):
+        grouping[j, bucket] = shares[bucket]
+    estimate = mgp_share(y.T @ grouping.T, solver)
+    return float(estimate["mgp_share"]), float(estimate["aggregate_variance"])
+
+
+def _fmt(x: float, decimals: int) -> str:
+    return f"{x:.{decimals}f}" if np.isfinite(x) else ""
+
+
+def _align(cells: list[str]) -> list[str]:
+    """Left-pad with \\phantom{0} so that a right-aligned column lines up on the
+    decimal point without pulling in siunitx or dcolumn: every entry already has
+    the same number of digits after the point, so only the integer part differs.
+    """
+    width = max((c.find(".") for c in cells if "." in c), default=0)
+    out = []
+    for cell in cells:
+        pad = width - cell.find(".") if "." in cell else 0
+        out.append((r"\phantom{" + "0" * pad + "}" if pad > 0 else "") + cell)
+    return out
+
+
+def table_rows(rows: pd.DataFrame) -> tuple[list[str], list[list[str]]]:
+    """Five-decimal cells with equal digit footprints to align decimal points."""
+    labels = [row["label"] for _, row in rows.iterrows()]
+    values = [[row["cv_compustat"], 100 * row["gbar_compustat"],
+               row["cv_mc"], 100 * row["gbar_mc"]] for _, row in rows.iterrows()]
+    columns = [_align([_fmt(v[j], 5) for v in values]) for j in range(4)]
+    return labels, [list(cells) for cells in zip(*columns)]
+
+
+def write_table(rows: pd.DataFrame, path) -> None:
+    labels, cells = table_rows(rows)
+    lines = [
+        r"\begingroup",
+        r"\setlength{\tabcolsep}{0pt}",
+        r"\begin{tabular}{@{}p{0.20\textwidth}*{2}{>{\centering\arraybackslash}p{0.18\textwidth}}p{0.02\textwidth}*{2}{>{\centering\arraybackslash}p{0.18\textwidth}}@{}}",
+        r"\toprule",
+        r" & \multicolumn{2}{c}{\textbf{Compustat sales}} & & "
+        r"\multicolumn{2}{c}{\textbf{Monte Carlo ($\gamma=3\%$)}} \\",
+        r"\cmidrule{2-3}\cmidrule{5-6}",
+        r"Scheme & $\mathrm{CV}(\widetilde{S^2})$ & $\hat{\tilde\gamma}$ (\%) & & "
+        r"$\mathrm{CV}(\widetilde{S^2})$ & $\tilde\gamma$ (\%) \\",
+        r"\midrule",
+    ]
+    for label, row in zip(labels, cells):
+        lines.append(" & ".join([label, *row[:2], "", *row[2:]]) + r" \\")
+    lines += [
+        r"\bottomrule",
+        r"\end{tabular}",
+        r"\endgroup",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "% Generated by code/run_grouping_schemes.py. Do not edit by hand.\n"
+        + "\n".join(lines) + "\n"
+    )
+
+
+def average_mc_draws(
+    partitions: dict, sizes: np.ndarray, m: int, reps: int = 1000
+) -> pd.Series:
+    """Paired population ceilings; higher solver accuracy resolves boundary draws."""
+    import cvxpy as cp
+    rng = np.random.default_rng(20260901)
+    psi = np.exp(.5 * rng.standard_normal(len(sizes)))
+    psi /= psi.mean()
+    granular = float(np.sum(sizes**2 * psi))
+    groupings = {}
+    for key, (buckets, _) in partitions.items():
+        g = np.zeros((m, len(sizes)))
+        for j, bucket in enumerate(buckets):
+            g[j, bucket] = sizes[bucket]
+        assert np.allclose(g.sum(axis=0), sizes)
+        groupings[key] = g
+    sigma_param = cp.Parameter((m, m), symmetric=True)
+    y = cp.Variable((m, m), symmetric=True)
+    constraints = [y >> 0, cp.diag(y) >= 1]
+    problem = cp.Problem(cp.Minimize(cp.sum(cp.multiply(sigma_param, y))), constraints)
+    options = dict(solver='CLARABEL', tol_gap_abs=1e-10, tol_gap_rel=1e-10,
+                   tol_feas=1e-10, max_iter=1000)
+    records = []
+    for draw in range(1, reps + 1):
+        raw = rng.standard_normal((len(sizes), 3))
+        scale = granular * .97 / (.03 * np.sum((sizes @ raw)**2))
+        loading = np.sqrt(scale) * raw
+        variance = granular + float(np.sum((sizes @ loading)**2))
+        record = {}
+        for key, g in groupings.items():
+            if key == 'h2_optimal' and np.array_equal(g, groupings['lpt']):
+                # The certified size-balance optimum is exactly this LPT partition.
+                record[key] = record['lpt']
+                continue
+            gl = g @ loading
+            sigma = gl @ gl.T + np.diag((g*g) @ psi)
+            assert np.isclose(sigma.sum(), variance, rtol=1e-10)
+            sigma_param.value = sigma / variance
+            problem.solve(**options)
+            assert problem.status in ('optimal', 'optimal_inaccurate')
+            value = float(problem.value)
+            d = constraints[1].dual_value
+            gap = value - float(np.sum(d))
+            assert abs(gap) < 1e-7, (draw, key, gap)
+            assert np.linalg.eigvalsh(y.value).min() > -1e-7
+            assert np.diag(y.value).min() > 1-1e-7
+            assert np.linalg.eigvalsh(sigma / variance-np.diag(d)).min() > -1e-7
+            assert .03-1e-7 <= value <= 1+1e-7, (draw, key, value)
+            record[key] = value
+        records.append(record)
+        if draw % 100 == 0:
+            print(f'[grouping] completed {draw}/{reps} paired loading draws', flush=True)
+    return pd.DataFrame(records).mean()
+
+
+def frozen_mc_allocation():
+    """Use the published bucket assignment, independent of CP-SAT tie choices."""
+    path = ROOT / "data/simulation/grouping_mc_buckets.json"
+    buckets = json.loads(path.read_text())
+    weights = [Fraction(1, i**2) for i in range(1, 1001)]
+    lower = exact_lower_bound(weights, M)
+    value = squared_load_objective(weights, buckets)
+    return dict(buckets=buckets, info=dict(
+        certified_relative_gap=(value - lower) / lower,
+        lower_bound=lower,
+        objective=value,
+    ))
+
+
+def optimal_partition(sizes, m, allocation):
+    if allocation is None:
+        return gs.certified_balance_buckets(sizes, m)
+    buckets = allocation["buckets"]
+    certificate = allocation["info"]
+    gap = Fraction(certificate["certified_relative_gap"])
+    if gap > TOLERANCE or sorted(i for bucket in buckets for i in bucket) != list(range(len(sizes))):
+        raise ValueError("Invalid certified grouping partition")
+    loads = gs.bucket_loads(sizes, buckets)
+    h2 = gs.h2_objective(loads)
+    info = {
+        "status": "CP_SAT_CERTIFIED_TOLERANCE",
+        "optimal": False,
+        "gap": float(gap),
+        "tolerance": float(TOLERANCE),
+        "lost_mass": 0.0,
+        "lower_bound": float(Fraction(certificate["lower_bound"]) /
+                             Fraction(certificate["objective"])) * h2,
+    }
+    return buckets, loads, info
+
+
+def panel_partitions(sizes, m, allocation):
+    optimal_buckets, optimal_loads, info = optimal_partition(sizes, m, allocation)
+    partitions = {
+        key: (optimal_buckets, optimal_loads) if fn is None else fn(sizes, m)
+        for key, _, fn in SCHEMES
+    }
+    lpt_h2 = gs.h2_objective(partitions["lpt"][1])
+    if info["gap"] > MAX_ACCEPTABLE_GAP:
+        raise RuntimeError(f"Certified balance gap exceeds tolerance: {info['gap']:.2e}")
+    slack = gs.h2_objective(optimal_loads) / lpt_h2 - 1
+    if slack > MAX_DISCRETIZATION_SLACK:
+        raise RuntimeError(f"Certified balance partition is worse than LPT: {slack:+.2e}")
+    return partitions, info
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--solver", default="auto")
+    parser.add_argument("--M", type=int, default=M)
+    parser.add_argument("--stem", default="grouping_schemes_mc_new")
+    args = parser.parse_args()
+
+    m = args.M
+    sizes_mc = mc.power_law_sizes(1000, 1.)
+    mc_allocation = frozen_mc_allocation() if m == M else None
+    simulated, mc_info = panel_partitions(sizes_mc, m, mc_allocation)
+    rows = pd.DataFrame([
+        {"key": key, "label": label, "cv_mc": gs.cv_of_loads(simulated[key][1]),
+         "h2_mc": gs.h2_objective(simulated[key][1])}
+        for key, label, _ in SCHEMES
+    ]).set_index("key")
+    rows["gbar_mc"] = average_mc_draws(simulated, sizes_mc, m)
+    rows.loc["h2_optimal", list(f"mc_{key}" for key in mc_info)] = list(mc_info.values())
+    rows["cv_compustat"] = rows["gbar_compustat"] = rows["h2_compustat"] = np.nan
+    if wrds_path("compustat_quarterly_sales").is_file():
+        panel = load_sales_panel()
+        sizes = panel.sizes.to_numpy(float)
+        shares = sizes / sizes.sum()
+        y = panel.wide.to_numpy(float)
+        y = y - y.mean()
+        print(f"[grouping] Compustat: N={shares.size}, T={y.shape[1]}", flush=True)
+
+        allocation = certified_compustat_allocation(sizes) if m == M else None
+        actual, actual_info = panel_partitions(shares, m, allocation)
+        solver = choose_solver(args.solver)
+        variances = []
+        for key, (buckets, loads) in actual.items():
+            ceiling, variance = compustat_ceiling(y, shares, buckets, solver)
+            rows.loc[key, ["cv_compustat", "gbar_compustat", "h2_compustat"]] = (
+                gs.cv_of_loads(loads), ceiling, gs.h2_objective(loads)
+            )
+            variances.append(variance)
+        if not np.allclose(np.array(variances) / variances[0], 1.0, atol=1e-10, rtol=0):
+            raise RuntimeError("Grouping partitions changed the Compustat aggregate variance")
+        rows.loc["h2_optimal", list(f"compustat_{key}" for key in actual_info)] = list(actual_info.values())
+
+        canonical = pd.read_pickle(RUN_OUTPUT_CACHE / "compustat_qtr_summary.pkl").iloc[0]
+        if not np.isclose(rows.loc["lpt", "gbar_compustat"], canonical["mgp_share"], rtol=1e-8, atol=1e-10):
+            raise RuntimeError("Grouping table does not match the headline quarterly Compustat ceiling")
+    else:
+        print("[grouping] Skipping Compustat: quarterly sales snapshot absent", flush=True)
+
+    csv_path = RUN_OUTPUT_CACHE / f"{args.stem}.csv"
+    out_path = OUTPUT_DIR / f"table_{args.stem}_tabular.tex"
+    table = rows.reset_index()
+    table.to_csv(csv_path, index=False)
+    write_table(table, out_path)
+    print(f"[grouping] wrote {out_path} and {csv_path}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

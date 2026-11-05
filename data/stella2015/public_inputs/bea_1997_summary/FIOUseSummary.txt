@@ -1,0 +1,73 @@
+FIOUseSummary.txt                             December 11, 2002
+
+File Layout Table for Data File:  IOUseSummary.txt
+Table 4.-- The Use of Commodities by Industries after Redefinitions, 1997
+
+-------------------------------------------------------------
+ Field         Description
+-------------------------------------------------------------
+  1       Commodity I-O code
+
+  2       Industry I-O code
+
+  3       Year
+
+  4       Table reference number (4) 
+
+  5       Use table cell.  These values represent the use of
+          inputs (identified by commodity codes) by industries
+          or final demand (identified by industry codes), in
+          producers' prices.
+
+  6       Margins and transportation costs.  This field 
+          contains an entry only when the commodity codes 
+          refer to transportation (650100, 650301, 650400, 650500, 
+          650600 and 680201), and trade (690100 and 690200).  
+          The entry represents the sum of the costs of distribution 
+          (transportation and trade) associated with all of the inputs 
+          consumed by an industry or a final user.  This field is used
+          to calculate transactions in purchasers' prices --
+          Purchasers' price = field 5 less field 6 plus fields 7-14.
+
+  7       Railroad transportation costs.  Entries in this field
+          represent rail costs to deliver the commodity to the
+          using industry or final user.
+
+  8       Truck transportation costs.  Entries in this field
+          represent truck costs to deliver the commodity to the
+          using industry or final user. 
+
+  9       Water transportation costs.  Entries in this field
+          represent water freight costs to deliver the commodity
+          to the using industry or final user.
+ 
+  10      Air transportation costs.  Entries in this field
+          represent air freight costs to deliver the commodity to
+          the using industry or final user. 
+ 
+  11      Pipeline transportation costs.  Entries in this 
+          field represent oil pipeline transportation costs 
+          to deliver the commodity to the using industry or 
+          final user.
+
+  12      Gas pipeline transportation costs.  Entries in this
+          field represent gas pipeline transportation costs to
+          deliver the commodity to the using industry or final
+          user.
+
+  13      Wholesale margin.  Entries in this field represent
+          the wholesale trade margin necessary to deliver the
+          commodity to the using industry or final user.
+          Included in the margin are wholesale sales taxes
+          and excise taxes collected by wholesalers. 
+
+  14      Retail margin.  Entries in this field represent the
+          retail trade margin necessary to deliver the commodity
+          to the using industry or final user.  Included in 
+          the margin are retail sales taxes and excise taxes
+          collected by retailers. 
+
+  15      Purchaser value.  Entries in this field represent the 
+          use of inputs (identified by commodity codes) by 
+          industries or final demand (identified by industry codes), 
+          in purchasers' prices.

@@ -1,0 +1,22 @@
+FIndbyComTRSum.txt                          December 11, 2002
+
+File layout for IndbyComTRSum.txt, 
+Table 7.--Industry-by-Commodity Total Requirements after Redefinitions, 1997
+
+----------------------------------------
+   Field            Description
+----------------------------------------
+    1            Industry I-O code
+
+    2            Commodity I-O code
+
+    3            Table reference number (7)
+
+    4            Total requirements coefficients.  These 
+                 values show the production required both
+                 directly and indirectly of the industry named
+                 by the industry code per dollar of delivery 
+                 to final use of the commodity named by the
+                 commodity code.  Coefficients are shown to 
+                 seven decimal places.
+----------------------------------------

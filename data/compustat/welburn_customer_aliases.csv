@@ -1,0 +1,84 @@
+customer_key,customer_gvkey,rationale,source
+AMERISOURCEBERGEN,031673,AmerisourceBergen renamed Cencora in 2023,Corporate name history
+AT AND T,009899,SBC adopted the AT&T name after its 2005 acquisition,Corporate name history
+GENERAL ELECTRIC,005047,General Electric renamed GE Aerospace in 2024,Corporate name history
+WALMART SAM S CLUB,011259,Sam's Club is a Walmart operating division,Corporate parent history
+BESSE MEDICAL,031673,Besse Medical is an AmerisourceBergen specialty distributor,Corporate parent history
+GE HEALTHCARE,005047,GE Healthcare was part of General Electric during 2015--2019,Corporate parent history
+GOOGLE,160329,Google reorganized under Alphabet in 2015,Corporate name history
+OPTUMRX,010903,OptumRx is a UnitedHealth Group subsidiary,Corporate parent history
+MCLANE,002176,McLane has been a Berkshire Hathaway subsidiary since 2003,Corporate parent history
+BERKSHIRE HATHAWAY,002176,Public parent rather than Berkshire Hathaway Energy subsidiary,Compustat company identity
+BECTON DICKINSON,002111,Common short name of Becton Dickinson and Company,Corporate name
+MCDONALDS,007154,Punctuation-free spelling of McDonald's,Corporate name
+CAMPBELL SOUP,002663,Common short name of Campbell Soup Company,Corporate name
+NORFOLK SOUTHERN RAILWAY,007923,Railroad operating subsidiary of Norfolk Southern,Corporate parent history
+UNION PACIFIC RAILROAD,010867,Railroad operating subsidiary of Union Pacific,Corporate parent history
+TJX COMPANIES,011672,Historical legal styling of TJX Companies,Corporate name history
+TJ MAXX,011672,TJ Maxx is a TJX operating division,Corporate parent history
+MARSHALLS,011672,Marshalls is a TJX operating division,Corporate parent history
+VERIZON WIRELESS,002136,Wireless operating business of Verizon Communications,Corporate parent history
+ELI LILLY AND,006730,Alternate word order for Eli Lilly and Company,Corporate name
+OFFICE DEPOT,014624,Office Depot is the operating name of The ODP Corporation,Corporate name history
+AMERICAN AIRLINES,001045,Operating airline consolidated to American Airlines Group,Corporate parent history
+FACEBOOK,170617,Facebook renamed Meta Platforms in 2021,Corporate name history
+INTERNATIONAL BUSINESS MACHINES,006066,Full name of IBM,Corporate name
+COSTCO WHOLESALE,029028,Common legal styling of Costco Wholesale,Corporate name
+UNITED TECHNOLOGIES,010983,United Technologies merged into the company now named RTX,Corporate name history
+WELLS FARGO BANK NA,008007,Bank operating subsidiary consolidated to Wells Fargo and Company,Corporate parent history
+CVS,007241,Common short name of CVS Health,Corporate name
+CVS PHARMACY,007241,CVS Pharmacy is a CVS Health operating business,Corporate parent history
+ALBERTSONS COMPANIES,025645,Full legal styling of Albertsons Companies,Corporate name
+UNITED AIRLINES,010795,Operating airline consolidated to United Airlines Holdings,Corporate parent history
+UNITED HEALTHCARE,010903,UnitedHealthcare is a UnitedHealth Group operating business,Corporate parent history
+ANTHEM,145046,Anthem renamed Elevance Health in 2022,Corporate name history
+INTERNATIONAL PAPER,006104,Full name of International Paper,Corporate name
+SALESFORCE COM,157855,Historical styling of Salesforce,Corporate name history
+DELL,014489,Dell operating business consolidated to Dell Technologies,Corporate parent history
+CENTURYLINK,002884,CenturyLink renamed Lumen Technologies in 2020,Corporate name history
+DIRECTV,009899,DIRECTV was consolidated into AT and T during the calibration window,Corporate parent history
+PNC BANK,008245,Bank operating subsidiary consolidated to PNC Financial Services Group,Corporate parent history
+KELLOGG,006375,Kellogg renamed Kellanova in 2023,Corporate name history
+XPO LOGISTICS,144998,XPO Logistics renamed XPO in 2022,Corporate name history
+SYNNEX,156155,SYNNEX became TD SYNNEX after its 2021 merger,Corporate name history
+PATTERSON COMPANIES,025880,Full legal styling of Patterson Companies,Corporate name
+QVC,174147,QVC operating business consolidated to its listed parent,Corporate parent history
+PREMIER,018624,Premier healthcare purchasing organization,Corporate identity
+HOST HOTELS AND RESORTS,007063,Operating business consolidated to Host Hotels and Resorts,Corporate parent history
+ANIXTER INTERNATIONAL,006196,Full legal styling of Anixter International,Corporate name
+VISTRA ENERGY,157373,Vistra Energy renamed Vistra Corp,Corporate name history
+DOWDUPONT,004060,DowDuPont predecessor of DuPont de Nemours,Corporate name history
+SPRINT NEXTEL,010984,Historical name in the Sprint corporate lineage,Corporate name history
+MOLSON COORS BREWING,003505,Molson Coors Brewing renamed Molson Coors Beverage,Corporate name history
+L BRANDS,006733,L Brands renamed Bath and Body Works in 2021,Corporate name history
+WALGREEN,011264,Walgreen consolidated into Walgreens Boots Alliance,Corporate parent history
+INGRAM MICRO,063919,Full legal styling of Ingram Micro during the calibration window,Corporate name
+OLD NAVY,004990,Old Navy is a Gap operating division,Corporate parent history
+NORDSTROM RACK,007922,Nordstrom Rack is a Nordstrom operating division,Corporate parent history
+ROSS DRESS FOR LESS,009248,Ross Dress for Less is a Ross Stores operating division,Corporate parent history
+JANSSEN,006266,Janssen is a Johnson and Johnson operating business,Corporate parent history
+JANSSEN BIOTECH,006266,Janssen Biotech is a Johnson and Johnson subsidiary,Corporate parent history
+GULFSTREAM AEROSPACE,005046,Gulfstream Aerospace is a General Dynamics subsidiary,Corporate parent history
+T MOBILE,017874,Common styling of T-Mobile US,Corporate name
+SAM S CLUB,011259,Sam's Club is a Walmart operating division,Corporate parent history
+PLAINS MARKETING,116029,Marketing subsidiary consolidated to Plains All American Pipeline,Corporate parent history
+PLAINS MARKETING L P,116029,Marketing subsidiary consolidated to Plains All American Pipeline,Corporate parent history
+PLAINS MARKETING AND TRANSPORTATION,116029,Operating subsidiary consolidated to Plains All American Pipeline,Corporate parent history
+SUNOCO,012892,Common short name of Sunoco LP during the calibration window,Corporate identity
+ABERCROMBIE AND FITCH,063643,Full name of Abercrombie and Fitch,Corporate name
+AMERICAN EAGLE OUTFITTERS,030059,Full name of American Eagle Outfitters,Corporate name
+OCWEN FINANCIAL,063639,Ocwen Financial renamed Onity Group in 2024,Corporate name history
+MARRIOTT INTERNATIONAL,028930,Full name of Marriott International,Corporate name
+VMWARE,178083,Common short name of VMware,Corporate name
+MICHAELS COMPANIES,007316,Full name of The Michaels Companies,Corporate name
+MICHAELS STORES,007316,Michaels Stores is the operating business of The Michaels Companies,Corporate parent history
+UNITEDHEALTHCARE,010903,UnitedHealthcare is a UnitedHealth Group operating business,Corporate parent history
+APACHE,001678,Apache Corporation reorganized under APA Corporation in 2021,Corporate name history
+BIOGEN IDEC,024468,Biogen Idec renamed Biogen in 2015,Corporate name history
+SCIENCE APPLICATIONS INTERNATIONAL,018683,Full name of Science Applications International Corporation,Corporate name
+VERIZON,002136,Common short name of Verizon Communications,Corporate name
+WALGREENS,011264,Operating pharmacy business consolidated to Walgreens Boots Alliance,Corporate parent history
+ENTERPRISE PRODUCTS PARTNERS,112876,Full name of Enterprise Products Partners,Corporate name
+CHEVRON USA,002991,Operating subsidiary consolidated to Chevron Corporation,Corporate parent history
+CHILDRENS PLACE RETAIL STORES,065430,Operating business consolidated to The Children's Place,Corporate parent history
+LIMITED BRANDS,006733,Former name of L Brands and Bath and Body Works,Corporate name history

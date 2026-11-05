@@ -1,0 +1,24 @@
+{
+  "source_url": "https://www.stata-journal.com/software/sj12-2/st0255/sax12.ado",
+  "download_date": "2026-10-20",
+  "sha256": "e12e817ac77808a1d788bae1b5a28bde643281b9277622ba0b33f33978fa5691",
+  "version_header": [
+    "*!version 1.0.1, 2010-Sep-27, Qunyong. Wang, brynewqy@nankai.edu.cn",
+    "*!modified: 2012-Mar-14."
+  ],
+  "source_audit": {
+    "automdl": "Only emitted when ammaxlag() is nonempty, lines500\u2013510; Stella omits ammaxlag, ammaxdiff, and ammodel.",
+    "outliers": "Stella specifies outauto(all), outmethod(addone), translated as types=(all), method=addone. The archived reconstruction uses outlier{} with defaults.",
+    "forecast": "sax12 defaults ammaxlead=12, ammaxback=0, probability=.95; estimate{} always emitted.",
+    "x11": "x11seas() empty emits seasonalma=msr."
+  },
+  "caveat": "Current Census X-13 executable is retained; the original X-12 vintage and special handling of missing original tid549 are unavailable.",
+  "direct_software_validation": {
+    "method": "Executed unmodified sax12.ado in Stata MP batch with the deposited options and justspc on a synthetic quarterly series; no Census executable was invoked.",
+    "generated_specification": "synthetic_spec_generated_by_stata.spc",
+    "result": "Generated specification confirms every estimation option in the sax12 variant; no arima, automdl, regression, or pickmdl block.",
+    "source_do": "tmp/stella_sax12_spec_audit/generate_spc.do",
+    "synthetic_data": "synthetic_revenues.dat",
+    "note": "Validation fixture uses entirely synthetic revenues; the absolute data path in generated SPC is replaced only when executing its fixture in tests."
+  }
+}

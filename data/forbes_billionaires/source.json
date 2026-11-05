@@ -1,0 +1,8 @@
+{
+  "snapshot": "archive_realtime_daily.csv",
+  "sha256": "b3a0614901e75a367508a4144f0fbbdb5b22771ba17576050dd52051580a8df9",
+  "bytes": 4079836988,
+  "capture_manifest": "archive_cdx_daily.csv",
+  "source": "Internet Archive captures of Forbes real-time billionaire list data",
+  "distribution": "Snapshot retained locally. The public release includes the capture manifest and acquisition code."
+}

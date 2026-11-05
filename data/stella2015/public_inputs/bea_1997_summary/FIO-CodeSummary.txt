@@ -1,0 +1,12 @@
+                                    December 11, 2002
+
+File layout for IO-CodeSummary.txt,  
+I-O Codes and Descriptions
+------------------------------------------------------
+     FIELD       DESCRIPTION
+------------------------------------------------------
+      1          I-O code
+
+      2          I-O code description
+------------------------------------------------------
+

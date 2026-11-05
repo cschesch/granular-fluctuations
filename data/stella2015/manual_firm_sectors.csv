@@ -1,0 +1,5 @@
+gvkey,company_name,stella_sid,bea_1997_summary_code,historical_code_basis,alternative_sid,alternative_code,sensitivity_note
+001300,Honeywell International,1017,3345,"2011 Compustat historical SIC 3822 / NAICS 334512; 1997 BEA 3345",1050,3364,"Earlier aerospace classification maps to 3364; use as sensitivity"
+003980,Walt Disney,1053,5131,"2011 historical NAICS 515120; 1997 broadcast counterpart 5131",1084,5120,"Film/content classification maps to 5120; use as sensitivity"
+006066,IBM,1057,5415,"2011 historical NAICS 541519; computer systems design 5415",1059,5142,"Earlier data-processing/services classification maps to 5142; use as sensitivity"
+007435,3M,1035,3222,"2011 historical SIC 2671 / NAICS 322220; converted-paper products 3222",1051,3399,"Conglomerate residual manufacturing is a broad sensitivity"

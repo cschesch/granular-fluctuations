@@ -1,0 +1,23 @@
+FIODirectRequirements.txt                               December 11, 2002
+
+
+File layout for IODirectRequirements.txt, 
+Table 5.--Commodity-by-Industry Direct Requirements after Redefinitions, 1997
+
+----------------------------------------
+    Field            Description
+----------------------------------------
+     1            Commodity I-O code
+
+     2            Industry I-O code
+
+     3            Table reference number (5)
+
+     4            Direct requirements coefficients.  These 
+                  values show the amount of the commodity
+                  required to produce one dollar of the
+                  industry's output.  The coefficients are
+                  derived from the use table (the commodity 
+                  input divided by the total industry output).
+                  Coefficients are shown to seven decimal 
+                  places.

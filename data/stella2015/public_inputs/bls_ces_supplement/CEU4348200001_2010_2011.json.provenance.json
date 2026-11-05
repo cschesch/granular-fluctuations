@@ -1,0 +1,11 @@
+{
+  "url": "https://api.bls.gov/publicAPI/v2/timeseries/data/CEU4348200001?startyear=2010&endyear=2011",
+  "last_modified": null,
+  "etag": null,
+  "series": "CEU4348200001",
+  "source": "BLS CES rail transportation, all employees, thousands, not seasonally adjusted",
+  "coverage_reason": "QCEW excludes railroad workers under the railroad unemployment insurance system; CES includes these jobs.",
+  "retrieved_utc": "2026-11-02T22:08:53.134990+00:00",
+  "sha256": "595dca72bea75db22bcfae0773c0d08d94c5886d0e2676b56e9734fa471dbbad",
+  "bytes": 2193
+}

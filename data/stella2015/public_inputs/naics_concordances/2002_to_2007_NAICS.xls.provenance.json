@@ -1,0 +1,9 @@
+{
+  "url": "https://www.census.gov/naics/concordances/2002_to_2007_NAICS.xls",
+  "last_modified": "Mon, 13 Jul 2026 19:46:25 GMT",
+  "etag": null,
+  "source": "US Census official NAICS concordance",
+  "retrieved_utc": "2026-11-02T22:05:39.032633+00:00",
+  "sha256": "a4b00b2195e318420962ba52b77f3c3122e83d893a9f804e820c151847ec85b1",
+  "bytes": 161280
+}

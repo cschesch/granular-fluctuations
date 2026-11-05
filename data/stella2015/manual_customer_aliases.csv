@@ -1,0 +1,47 @@
+customer_key,customer_gvkey,rationale,source
+WAL MART STORES,011259,Historical styling of Walmart Stores,Historical corporate name
+CVS CAREMARK,007241,CVS Caremark Corporation renamed CVS Health Corporation in 2014,SEC filing and corporate history
+SEARS ROEBK,006307,Standard truncated historical name Sears Roebuck for Sears,Historical corporate name
+GEN MTR,005073,Standard Compustat abbreviation for General Motors,Historical Segments abbreviation
+GEN MOTORS,005073,Standard abbreviation for General Motors,Historical Segments abbreviation
+NAVISTAR,006081,Short name of Navistar International,Historical corporate name
+INTERNATIONAL TRUCK AND ENGINE,006081,Operating name of Navistar International during the sample,Historical corporate name
+INTL HARVST,006081,International Harvester predecessor name of Navistar International,Historical corporate name
+FLA P AND L,004798,Standard abbreviation for Florida Power and Light,Historical Segments abbreviation
+PHIL MOR,008543,Philip Morris Companies renamed Altria Group in 2003,SEC filing and corporate history
+MOTOROLA,007585,Motorola Inc renamed Motorola Solutions in 2011,SEC filing and corporate history
+EXXON,004503,Exxon Corporation predecessor name in the Exxon Mobil lineage,Historical corporate name
+LOWE S COMPANIES,006829,Historical legal name of Lowe's Companies,Historical corporate name
+CLEV ELEC,012564,Standard abbreviation for Cleveland Electric Illuminating,Historical Segments abbreviation
+CLEVE ELEC IL,012564,Truncated name for Cleveland Electric Illuminating,Historical Segments abbreviation
+FEDERATED DEPT STORES,004611,Federated Department Stores renamed Macy's in 2007,Historical corporate name
+MCKSN HBOC,007171,McKesson HBOC was the post-merger name of McKesson,Historical corporate name
+GULF STATE,005387,Truncated historical name of Entergy Gulf States Louisiana,Historical Segments abbreviation
+FORD MTR,004839,Standard historical abbreviation for Ford Motor,Historical Segments abbreviation
+INTERNATIONAL BUSINESS MACHI,006066,Truncated historical name for International Business Machines,Historical Segments abbreviation
+INTERNATIONAL BUSINESS MACH,006066,Truncated historical name for International Business Machines,Historical Segments abbreviation
+IBM,006066,Standard abbreviation for International Business Machines,Historical corporate name
+INTL BUS MA,006066,Truncated abbreviation for International Business Machines,Historical Segments abbreviation
+JOHNSN AND JHNS,006266,Historical abbreviation for Johnson and Johnson,Historical Segments abbreviation
+MCKESSON DRUG,007171,Historical operating name in the McKesson lineage,Historical corporate name
+MCKESSON CP,007171,Historical abbreviation for McKesson,Historical Segments abbreviation
+WARNACO GROUP INC THE,013990,Historical legal styling for Warnaco Group,Historical corporate name
+TENNECO,010443,Short historical name for Tenneco Inc,Historical corporate name
+GEN ELEC,005047,Historical abbreviation for General Electric,Historical Segments abbreviation
+EASTMN KODAK,004194,Historical abbreviation for Eastman Kodak,Historical Segments abbreviation
+OWENS ILL,008215,Historical abbreviation for Owens Illinois,Historical Segments abbreviation
+GEN EL,005047,Truncated historical abbreviation for General Electric,Historical Segments abbreviation
+INTERNATIONAL BUSINESS MACHINES,006066,Full historical name for IBM,Historical corporate name
+SW PUB SVC,009906,Truncated historical name for Southwestern Public Service,Historical Segments abbreviation
+S DIEGO G AND E,065090,Truncated historical name for San Diego Gas and Electric,Historical Segments abbreviation
+PIEDMNT NAT,008577,Truncated historical name for Piedmont Natural Gas,Historical Segments abbreviation
+UNION CAR,010857,Truncated historical name for Union Carbide,Historical Segments abbreviation
+CONS EDISON,003413,Truncated historical name for Consolidated Edison,Historical Segments abbreviation
+ENTERGY GLF,005387,Truncated historical name for Entergy Gulf States,Historical Segments abbreviation
+JOHN DEERE,003835,Historical operating name in the Deere lineage,Historical corporate name
+GE MEDICAL SYSTEMS,005047,General Electric operating business during the reported years,Historical parent relationship
+CONSTELLATION ENERGY COMMODITIES,001995,Constellation Energy operating subsidiary during the reported years,Historical parent relationship
+CONSTELLATION POWER SOURCE,001995,Constellation Energy operating subsidiary during the reported years,Historical parent relationship
+SPRINT CAPITAL,010984,Sprint financing subsidiary during the reported years,Historical parent relationship
+CHEVRON CAPITAL USA,002991,Chevron financing subsidiary during the reported year,Historical parent relationship
+DAKOTA COAL,006867,MDU Resources operating subsidiary during the reported years,Historical parent relationship

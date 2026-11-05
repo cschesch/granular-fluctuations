@@ -1,0 +1,21 @@
+FIOMakeSummary.txt                                  December 11, 2002
+
+File layout for IOMakeSummary.txt, 
+Table 3.--The Make of Commodities by Industries after Redefinitions, 1997
+   ----------------------------------------------------------
+        Field       Description
+   ----------------------------------------------------------
+         1        Industry I-O code
+
+         2        Commodity I-O code
+
+         3        Table reference number (3)
+
+         4        Make table value.  This field contains the
+                    value of each commodity produced by the
+                    domestic industry in producers' prices.
+                    The industry code is the producing industry,
+                    the commodity code is the commodity
+                    produced.  Values are in millions of
+                    dollars.
+     ------------------------------------------------------------

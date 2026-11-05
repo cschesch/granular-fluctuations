@@ -1,0 +1,84 @@
+industry_code,parent_code,industry_name,is_residual,reasoning
+10000000,0,Mining and logging,0,From cesseriespub.xlsx (Supersector)
+10113300,10000000,Logging,0,From cesseriespub.xlsx
+10210000,10000000,"Mining, quarrying, and oil and gas extraction",0,From cesseriespub.xlsx
+10211000,10210000,Oil and gas extraction,0,From cesseriespub.xlsx
+10210000_other,10210000,"Mining, quarrying, and oil and gas extraction_other",1,Synthetic residual to balance Mining quarrying and oil & gas extraction
+20000000,0,Construction,0,From cesseriespub.xlsx (Supersector)
+30000000,0,Manufacturing,0,From cesseriespub.xlsx (Supersector)
+31000000,30000000,Durable goods,0,From cesseriespub.xlsx
+31327000,31000000,Nonmetallic mineral product manufacturing,0,From cesseriespub.xlsx
+31327320,31327000,Ready-mix concrete manufacturing,0,Parent 31327300 missing in 1972; attached to ancestor 31327000
+31327000_other,31327000,Nonmetallic mineral product manufacturing_other,1,Synthetic residual to balance Nonmetallic mineral product manufacturing
+31332720,31000000,"Turned product and screw, nut, and bolt manufacturing",0,Parent 31332700 missing in 1972; attached to ancestor 31000000
+31333200,31000000,Industrial machinery manufacturing,0,From cesseriespub.xlsx
+31333248,31333200,All other industrial machinery manufacturing,0,From cesseriespub.xlsx
+31333200_other,31333200,Industrial machinery manufacturing_other,1,Synthetic residual to balance Industrial machinery manufacturing
+31334413,31000000,Semiconductor and related device manufacturing,0,Parent 31334400 missing in 1972; attached to ancestor 31000000
+31334513,31000000,"Instruments and related products manufacturing for measuring, displaying, and controlling industrial process variables",0,Parent 31334510 missing in 1972; attached to ancestor 31000000
+31334515,31000000,Instrument manufacturing for measuring and testing electricity and electrical signals,0,Parent 31334510 missing in 1972; attached to ancestor 31000000
+31335200,31000000,Household appliance manufacturing,0,Parent 31335000 missing in 1972; attached to ancestor 31000000
+31335910,31000000,Battery manufacturing,0,Parent 31335900 missing in 1972; attached to ancestor 31000000
+31336370,31000000,Motor vehicle metal stamping,0,Parent 31336300 missing in 1972; attached to ancestor 31000000
+31336600,31000000,Ship and boat building,0,Parent 31336000 missing in 1972; attached to ancestor 31000000
+31336611,31336600,Ship building and repairing,0,From cesseriespub.xlsx
+31336600_other,31336600,Ship and boat building_other,1,Synthetic residual to balance Ship and boat building
+31000000_other,31000000,Durable goods_other,1,Synthetic residual to balance Durable goods
+32000000,30000000,Nondurable goods,0,From cesseriespub.xlsx
+32311411,32000000,"Frozen fruit, juice, and vegetable manufacturing",0,Parent 32311410 missing in 1972; attached to ancestor 32000000
+32311500,32000000,Dairy product manufacturing,0,Parent 32311000 missing in 1972; attached to ancestor 32000000
+32311615,32000000,Poultry processing,0,Parent 32311600 missing in 1972; attached to ancestor 32000000
+32324110,32000000,Petroleum refineries,0,Parent 32324000 missing in 1972; attached to ancestor 32000000
+32325300,32000000,"Pesticide, fertilizer, and other agricultural chemical manufacturing",0,Parent 32325000 missing in 1972; attached to ancestor 32000000
+32000000_other,32000000,Nondurable goods_other,1,Synthetic residual to balance Nondurable goods
+40000000,0,"Trade, transportation, and utilities",0,From cesseriespub.xlsx (Supersector)
+41420000,40000000,Wholesale trade,0,From cesseriespub.xlsx
+42000000,40000000,Retail trade,0,From cesseriespub.xlsx
+42441100,42000000,Automobile dealers,0,Parent 42441000 missing in 1972; attached to ancestor 42000000
+42441110,42441100,New car dealers,0,From cesseriespub.xlsx
+42441120,42441100,Used car dealers,0,From cesseriespub.xlsx
+42000000_other,42000000,Retail trade_other,1,Synthetic residual to balance Retail trade
+43000000,40000000,Transportation and warehousing,0,From cesseriespub.xlsx
+43482000,43000000,Rail transportation,0,From cesseriespub.xlsx
+43485400,43000000,School and employee bus transportation,0,Parent 43485000 missing in 1972; attached to ancestor 43000000
+43000000_other,43000000,Transportation and warehousing_other,1,Synthetic residual to balance Transportation and warehousing
+44220000,40000000,Utilities,0,From cesseriespub.xlsx
+50000000,0,Information,0,From cesseriespub.xlsx (Supersector)
+50512130,50000000,Motion picture and video exhibition,0,Parent 50512000 missing in 1972; attached to ancestor 50000000
+50000000_other,50000000,Information_other,1,Synthetic residual to balance Information
+55000000,0,Financial activities,0,From cesseriespub.xlsx (Supersector)
+55531100,55000000,Lessors of real estate,0,Parent 55531000 missing in 1972; attached to ancestor 55000000
+55000000_other,55000000,Financial activities_other,1,Synthetic residual to balance Financial activities
+60000000,0,Professional and business services,0,From cesseriespub.xlsx (Supersector)
+65000000,0,Private education and health services,0,From cesseriespub.xlsx (Supersector)
+65611100,65000000,Private elementary and secondary schools,0,Parent 65610000 missing in 1972; attached to ancestor 65000000
+65611300,65000000,"Private junior colleges, colleges, universities, and professional schools",0,Parent 65610000 missing in 1972; attached to ancestor 65000000
+65621100,65000000,Offices of physicians,0,Parent 65621000 missing in 1972; attached to ancestor 65000000
+65622100,65000000,General medical and surgical hospitals,0,Parent 65622000 missing in 1972; attached to ancestor 65000000
+65624300,65000000,Vocational rehabilitation services,0,Parent 65624000 missing in 1972; attached to ancestor 65000000
+65000000_other,65000000,Private education and health services_other,1,Synthetic residual to balance Private education and health services
+70000000,0,Leisure and hospitality,0,From cesseriespub.xlsx (Supersector)
+70721100,70000000,Traveler accommodation,0,Parent 70721000 dropped (sum discrepancy); attached to ancestor 70000000
+70721200,70000000,"Recreational vehicle (RV) parks and recreational camps",0,Parent 70721000 dropped (sum discrepancy); attached to ancestor 70000000
+70000000_other,70000000,Leisure and hospitality_other,1,Synthetic residual to balance Leisure and hospitality
+80000000,0,Other services,0,From cesseriespub.xlsx (Supersector)
+80812210,80000000,Funeral homes and funeral services,0,Parent 80812200 missing in 1972; attached to ancestor 80000000
+80813920,80000000,Professional organizations,0,Parent 80813900 missing in 1972; attached to ancestor 80000000
+80000000_other,80000000,Other services_other,1,Synthetic residual to balance Other services
+90000000,0,Government,0,From cesseriespub.xlsx (Supersector)
+90910000,90000000,Federal,0,From cesseriespub.xlsx
+90911000,90910000,"Federal, except U.S. Postal Service",0,From cesseriespub.xlsx
+90919110,90911000,Department of Defense,0,From cesseriespub.xlsx
+90911000_other,90911000,"Federal, except U.S. Postal Service_other",1,Synthetic residual to balance Federal except U.S. Postal Service
+90919120,90910000,U.S. Postal Service,0,From cesseriespub.xlsx
+90920000,90000000,State government,0,From cesseriespub.xlsx
+90921611,90920000,State government education,0,From cesseriespub.xlsx
+90922000,90920000,"State government, excluding education",0,From cesseriespub.xlsx
+90922622,90922000,State hospitals,0,From cesseriespub.xlsx
+90922920,90922000,State government general administration,0,From cesseriespub.xlsx
+90922999,90922000,Other State government,0,From cesseriespub.xlsx
+90930000,90000000,Local government,0,From cesseriespub.xlsx
+90931611,90930000,Local government education,0,From cesseriespub.xlsx
+90932000,90930000,"Local government, excluding education",0,From cesseriespub.xlsx
+90932622,90932000,Local hospitals,0,From cesseriespub.xlsx
+90932000_other,90932000,"Local government, excluding education_other",1,Synthetic residual to balance Local government excluding education

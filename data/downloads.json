@@ -1,0 +1,42 @@
+{
+  "french_international": {
+    "path": "data/additional_applications/raw/french_country_returns/F-F_International_Countries.zip",
+    "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_International_Countries.zip",
+    "sha256": "6041ff104726d6aadfea76c4ef25af35594e799b90064b76b6bb83bd4acb0091"
+  },
+  "french_us": {
+    "path": "data/additional_applications/raw/french_country_returns/F-F_Research_Data_Factors_CSV.zip",
+    "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_CSV.zip",
+    "sha256": "b03d39e4bb253dda0f14893db3b78e64b40b8d6549a0fc0fd4111dae84c98618"
+  },
+  "kpss_values_2024": {
+    "path": "data/additional_applications/raw/kpss_extended/KPSS_2024.zip",
+    "url": "https://media.githubusercontent.com/media/KPSS2017/Technological-Innovation-Resource-Allocation-and-Growth-Extended-Data/fe9d68ecc6f8f4d87b4d54179d14cfcfb2768805/KPSS_2024.zip",
+    "sha256": "60215d8db687b0c40060de1649cf0f14364cbac2cbdd16b5cb3dee2dcdb85f27"
+  },
+  "kpss_cpc_2024": {
+    "path": "data/additional_applications/raw/kpss_extended/Match_patent_cpc_2024.zip",
+    "url": "https://media.githubusercontent.com/media/KPSS2017/Technological-Innovation-Resource-Allocation-and-Growth-Extended-Data/fe9d68ecc6f8f4d87b4d54179d14cfcfb2768805/Match_patent_cpc_2024.zip",
+    "sha256": "a43de8ee5d43b3c0840f11540d0468febccad0d378dc372b4aee803aefce4257"
+  },
+  "kpss_permco_permno_2024": {
+    "path": "data/additional_applications/raw/kpss_extended/Match_patent_permco_permno_2024.zip",
+    "url": "https://media.githubusercontent.com/media/KPSS2017/Technological-Innovation-Resource-Allocation-and-Growth-Extended-Data/fe9d68ecc6f8f4d87b4d54179d14cfcfb2768805/Match_patent_permco_permno_2024.zip",
+    "sha256": "4686ee4383bfc8bf43b7721766f28e04e331ea02bbffe4dd1358d5c02b5e675a"
+  },
+  "patent_firm_panel": {
+    "path": "data/additional_applications/raw/patent-firm-link-share/firm_year_panel_public.csv",
+    "url": "https://raw.githubusercontent.com/songma/patent-firm-link-share/17f2f473a878036dfa8c87fdf969ac835b6edd24/firm_year_panel_public.csv",
+    "sha256": "a46f231ac47a1fbb79a90e3c53c150d84dd631af4dc312767f619c90e235b949"
+  },
+  "energy": {
+    "path": "data/additional_applications/raw/owid_energy_data.csv",
+    "url": "https://raw.githubusercontent.com/owid/energy-data/e7897aed55b514b8d16e0a3d8f1518789ac3de31/owid-energy-data.csv",
+    "sha256": "266f2e2baad7975351bc9bb4aa061d22b1da9fe4c47d51d2ac6071e01e171f76"
+  },
+  "granular_cities": {
+    "path": "data/additional_applications/raw/DatasetsGranularCities.xlsx",
+    "url": "https://ndownloader.figshare.com/files/38492837",
+    "sha256": "fd25fbbaca9ce9ea9ffbf1a26219d37c00bff481a8cc3955b5c489d243dbdbbb"
+  }
+}

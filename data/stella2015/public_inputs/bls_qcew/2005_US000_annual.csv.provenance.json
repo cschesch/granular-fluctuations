@@ -1,0 +1,13 @@
+{
+  "url": "https://data.bls.gov/cew/data/files/2005/csv/2005_annual_by_area.zip",
+  "last_modified": "Thu, 07 May 2015 13:37:05 GMT",
+  "etag": "\"7b73e3c-5157e01dee240\"",
+  "archive_member": "2005.annual.by_area/2005.annual US000 U.S. TOTAL.csv",
+  "archive_member_crc32": "8127d6dd",
+  "year": 2005,
+  "source": "BLS QCEW annual averages, US total; all ownership categories retained in raw input",
+  "naics_vintage": 2002,
+  "retrieved_utc": "2026-11-02T22:05:59.303243+00:00",
+  "sha256": "a52201b56ae194d052f4414259cfbaf5d7925dc48271814bf281d3e855da0146",
+  "bytes": 1526861
+}
