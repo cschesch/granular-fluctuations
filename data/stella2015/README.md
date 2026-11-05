@@ -1,19 +1,30 @@
 # Stella (2015)
 
-`source.zip` preserves the author's original release, identified in `source.json`.
-The pipeline extracts it into `code/.cache/upstream/`. Our wrappers call the
-original constructors and model code from outside that extraction.
+`source.zip` contains the original author release, identified in `source.json`.
+`public_inputs/` contains BEA, Census, and BLS inputs and their provenance.
 
-`public_inputs/` contains raw BEA, Census and BLS sources and their provenance.
-Run `python -m applications.stella.prepare_public` from `code/` to reconstruct
-employment denominators and the author's deposited GDP vector under
-`code/.cache/derived/stella/`.
+The full reconstruction also requires the Compustat quarterly revenue extract
+pinned in `paper_inputs.json`, plus annual and customer files pinned under
+`data/compustat/`. Licensed observations are not included. The analysis uses
+quarterly `revtq`; it does not fill missing revenue with `saleq`.
 
-The full reconstruction also needs the local Compustat WRDS revenue, annual and
-customer extracts and the reviewed firm/sector and customer-name maps. The paper
-runner leaves Stella's estimates blank when these licensed inputs are absent.
+## Requirements
 
-For the licensed reconstruction, build the bundled X-12 seasonal-adjustment
-engine once with `python -m applications.stella.build_stella_x12` from `code/`
-(requires GNU Fortran), or set `X12PATH` to an existing executable. Public-input
-sources and conventions are described in `public_inputs/README.md`.
+Octave and Dynare's `gensys.m` solve the model and validate its constructors.
+Set `OCTAVE` and `GENSYS_DIR` when they are not found automatically.
+
+Seasonal adjustment uses X-12. Build the bundled source with GNU Fortran,
+or set `X12PATH` to an existing executable. From the repository root:
+
+```sh
+cd code
+python -m applications.stella.build_stella_x12
+python -m applications.stella.prepare_public
+```
+
+Public preparation reconstructs employment denominators and the deposited GDP
+series in `code/.cache/derived/stella/`. The full application runs through
+`run_replication.py`; it reports unavailable licensed inputs in the run report.
+
+See [public inputs](public_inputs/README.md) for source conventions and
+[WRDS](../README_WRDS.md) for obtaining and selecting the additional inputs.

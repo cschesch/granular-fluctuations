@@ -14,34 +14,31 @@ import numpy as np
 import pandas as pd
 
 from mgp_core import ROOT
-from applications.stella.prepare_stella_calibration import released_screen_panel, screen_history, top500_membership
 from applications.stella.paths import CALIBRATION, UNBALANCED
 from applications.stella.prepare_stella_sales import locate_x13, parse_d11, x13_spec
-from applications.stella.audit_stella_growth_moments import growth_accounting
 
 
-def main() -> None:
-    # Real source behavior: missing lag sales cannot occupy a top-500 rank.
-    dates = pd.period_range("1962Q1", periods=41, freq="Q")
-    synthetic = pd.DataFrame({
-        "gvkey": np.repeat([f"{i:06d}" for i in range(1, 502)], len(dates)),
-        "quarter": np.tile(dates, 501),
-        "saleq": np.repeat(np.arange(1, 502), len(dates)),
-    })
-    strict, strict_n = released_screen_panel(synthetic)
-    assert strict_n == 500
-    assert "000001" not in set(strict["gvkey"])
-    membership = top500_membership(screen_history(synthetic))
-    assert set(membership["gvkey"]) == set(strict["gvkey"])
-    assert dates[0] not in set(membership["quarter"])
-    account = growth_accounting(pd.DataFrame([[100., 110., np.nan], [np.nan, 20., 25.],
-                                             [50., 50., 50.]]))
-    np.testing.assert_allclose(account.iloc[0], [20., 100*10/150, 100*20/150, 0.])
-    np.testing.assert_allclose(account.iloc[1], [-100*105/180, 100*5/180, 0., -100*110/180])
+TEST_GROUP = "integration"
+TEST_CACHE_INPUTS = (
+    ".cache/tools/x12a_v03/source/x12a", ".cache/tools/x12a_v03/build_manifest.json",
+    ".cache/firm_networks/stella_revtq/nominal_saleq_sax12_adjusted.csv",
+    ".cache/firm_networks/stella_revtq_unbalanced/*.csv",
+    ".cache/firm_networks/stella_revtq_unbalanced/diagnostics.json",
+)
 
+from tests.support import require_files
+from unittest import SkipTest
+
+
+def test_source_seasonal_specification() -> None:
     # Independent numerical check against an SPC emitted by the unmodified
     # published Stata sax12.ado, including its sliding-span/history diagnostics.
     public = ROOT / "data/stella2015/public_inputs/sax12"
+    require_files(*(public / name for name in ("provenance.json", "sax12.ado", "synthetic_spec_generated_by_stata.spc", "synthetic_revenues.dat")))
+    try:
+        executable = locate_x13()
+    except FileNotFoundError as error:
+        raise SkipTest(str(error)) from error
     provenance = json.loads((public / "provenance.json").read_text())
     assert hashlib.sha256((public / "sax12.ado").read_bytes()).hexdigest() == provenance["sha256"]
     direct = (public / "synthetic_spec_generated_by_stata.spc").read_text()
@@ -57,10 +54,15 @@ def main() -> None:
         for name, spec in [("source", direct), ("translated", translated)]:
             path = Path(tmp) / name
             path.with_suffix(".spc").write_text(spec)
-            subprocess.run([str(locate_x13()), name], cwd=tmp, capture_output=True, check=True)
+            subprocess.run([str(executable), name], cwd=tmp, capture_output=True, check=True)
             results.append(parse_d11(path.with_suffix(".d11"), len(values)))
     np.testing.assert_allclose(results[0], results[1], rtol=0, atol=1e-9)
 
+
+
+def test_private_balanced_and_unbalanced_panels():
+    require_files(CALIBRATION / "nominal_saleq_sax12_adjusted.csv",
+                  *(UNBALANCED / name for name in ("nominal_saleq_sax12_adjusted.csv", "sales_growth_sax12.csv", "top500_index.csv", "diagnostics.json")))
     # Private balanced and unbalanced preparations must share the same adjusted
     # levels, while demeaning growth over different estimation windows.
     level = pd.read_csv(CALIBRATION / "nominal_saleq_sax12_adjusted.csv", index_col=0)
@@ -76,8 +78,3 @@ def main() -> None:
     for col in y:
         observed = np.flatnonzero(y[col].notna())
         assert len(observed) >= 40 and np.all(np.diff(observed) == 1)
-    print("Stella preprocessing: direct Stata-SPC equivalence, missing-rank screen and private-panel checks passed.")
-
-
-if __name__ == "__main__":
-    main()

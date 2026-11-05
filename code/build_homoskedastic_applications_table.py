@@ -3,7 +3,7 @@
 
 Preserves the main table's metadata and heteroskedastic estimates. The figure
 contains 42 applications; the two additional annual Compustat rows use the
-same hMGP implementation and 1000-draw inference. Does not edit main.tex.
+same hMGP implementation and 1000-draw inference.
 """
 import hashlib
 import numpy as np

@@ -1,20 +1,54 @@
-# Granularity in High Dimensions
+# How Granular Are Aggregate Fluctuations?
 
-Use Python 3.11 in a virtual environment.
+Replication code and data for Constantin Schesch's **“How Granular Are Aggregate
+Fluctuations?”**, including empirical applications, simulations, figures and tables.
+
+- `code/`: estimation, data preparation, simulations and tests.
+- `data/`: bundled public inputs and instructions for additional data.
+- `output/`: generated figures, tables and run reports.
+
+Some applications require separately obtained WRDS extracts or Forbes snapshots.
+See [Data](data/README.md).
+
+## Install
+
+Use Python 3.11 and GNU Make. From the repository root:
 
 ```sh
+python3.11 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r code/requirements.txt
-make -C code all
-python code/verify_release.py
 ```
 
-Public input snapshots are bundled; no data download step is needed.
-`output/` holds the paper exhibits. Missing licensed data or optional source tools leave
-estimates blank while retaining the exhibit layout. See [data sources](data/README.md).
-Foerster preprocessing uses Octave and Dynare's `gensys.m` (`GENSYS_DIR`). Atalay
-preprocessing uses Stata with `hprescott` and MATLAB with its Statistics toolbox.
-Set `OCTAVE`, `MATLAB` or `STATA` to select executables.
+Some network applications also require MATLAB, Stata, Octave or X-12. Their
+requirements are listed in [Data](data/README.md).
 
-The maintained code is byte-identical to the research pipeline at release.
-`SHA256SUMS` verifies bundled code and inputs. Runtime caches start empty and stay
-ignored by Git. Use `make -C code test` for the estimator and loader checks.
+## Run
+
+```sh
+make -C code PYTHON=python all
+```
+
+The default runs everything available. Missing inputs leave unavailable entries
+in tables and labelled placeholder figures. **Check `output/run_report.json`: a
+run with skipped analyses is a partial replication.** To fail when a requested
+analysis is unavailable, use `make -C code PYTHON=python strict`.
+
+List commands without running them, or try a short synthetic check:
+
+```sh
+python code/run_replication.py --plan
+make -C code PYTHON=python smoke
+```
+
+See [Code](code/README.md) for sections, tests and verification;
+[figures and tables](code/EXHIBITS.md) for the output map; and
+[tested environment and timings](code/REPRODUCIBILITY.md) for measured checks.
+
+## Citation and reuse
+
+Please cite Constantin Schesch (2026), *How Granular Are Aggregate Fluctuations?*
+Repository citation metadata are in [CITATION.cff](CITATION.cff).
+
+A license for the project's own code has not yet been selected. Third-party
+code and data retain their original terms; inclusion here does not change them.

@@ -151,7 +151,7 @@ def load_grid(profile_dir: Path, sweep: str) -> pd.DataFrame:
         raise FileNotFoundError(
             f"Missing {index_path}.  Run\n"
             f"  matlab -batch \"ATALAY_SWEEP='{sweep}'; "
-            f"run('{ROOT / 'code' / 'export_atalay_elasticity_profile.m'}')\"\n"
+            f"run('{ROOT / 'code/applications/atalay' / 'export_atalay_elasticity_profile.m'}')\"\n"
             "to re-run the deposited Atalay filter over that grid first."
         )
     index = pd.read_csv(index_path)

@@ -1,0 +1,11 @@
+{
+  "description": "Paper input filenames and checksums only; licensed observations are not included.",
+  "datasets": {
+    "stella_quarterly": {
+      "file": "wrds_inputs/stella_quarterly_wrds_2026-11-03T084628002845Z.csv.gz",
+      "sha256": "d94020cbf2d0fd91803c3d5ee584baf715bda870fca1cddd342b40c9beeaf57b",
+      "extracted_utc": "2026-11-03T084628002845Z",
+      "analysis_cutoff": "2011Q4"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "description": "Paper input filenames and checksums only; licensed observations are not included.",
+  "datasets": {
+    "crsp_daily_stocks_ciz": {
+      "file": "crsp_daily_stocks_ciz_wrds_2026-11-02T153531165089Z.csv.gz",
+      "sha256": "1206d09db6939295a4c774d78039c3678c03240f3a929dd6968c12f6a05f9041",
+      "extracted_utc": "2026-11-02T153531165089Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    },
+    "crsp_security_history_ciz": {
+      "file": "crsp_security_history_ciz_wrds_2026-11-02T151639161681Z.csv.gz",
+      "sha256": "bc585d5750c72bb70ba0f8abd85ab78451242aabd8a6c7411db80091d72dd798",
+      "extracted_utc": "2026-11-02T151639161681Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    }
+  }
+}

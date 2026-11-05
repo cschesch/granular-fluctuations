@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 from mgp_core import (
-    EXCLUDED_COMPUSTAT_SIC,
     make_panel_contiguous,
     remove_periodic_means,
     standardize_panel,
@@ -22,6 +21,10 @@ from applications.panels import (
     save_source_panel_cache,
     source_panel_cache_path,
 )
+
+
+# Gabaix-style exclusions shared by the annual and quarterly panels.
+EXCLUDED_COMPUSTAT_SIC = {1311, 1389, 2911, 5172} | set(range(4901, 4941)) | set(range(6001, 7001))
 
 
 def load_compustat_annual_panel(value: str, t: int, use_cache: bool = True, refresh_cache: bool = False) -> SourcePanel:

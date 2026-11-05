@@ -17,7 +17,7 @@ def prepare() -> Path:
     if matlab is None:
         raise FileNotFoundError("MATLAB is required to regenerate the Herskovic model-size draw")
     expression = (
-        f"addpath('{matlab_string(CODE_DIR)}'); "
+        f"addpath('{matlab_string(Path(__file__).parent)}'); "
         f"export_herskovic_calibrated_sizes('{matlab_string(ROOT)}','{matlab_string(upstream('herskovic2020'))}')"
     )
     subprocess.run([matlab, "-batch", expression], cwd=CODE_DIR, check=True)

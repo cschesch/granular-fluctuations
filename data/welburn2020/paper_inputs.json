@@ -1,0 +1,23 @@
+{
+  "description": "Paper input filenames and checksums only; licensed observations are not included.",
+  "datasets": {
+    "wrds_supply_chain_ids": {
+      "file": "wrds_inputs/wrds_supply_chain_ids_2026-11-03T095852387973Z.csv.gz",
+      "sha256": "add66895ced81d215f3e05dc4208f1d263f0d0199c72fd4c22f87aaa20aa064e",
+      "extracted_utc": "2026-11-03T095852387973Z",
+      "analysis_cutoff": "2019-03-31"
+    },
+    "wrds_company_subsidiaries": {
+      "file": "wrds_inputs/wrds_company_subsidiaries_2026-11-03T100117586893Z.csv.gz",
+      "sha256": "1ea8ff0dc00b1d99504a5c7aa6ef0be8f5990a3f45982d61fb7c5e8408f5330d",
+      "extracted_utc": "2026-11-03T100117586893Z",
+      "analysis_cutoff": "2019-03-31"
+    },
+    "wrds_subsidiary_global_aliases": {
+      "file": "wrds_inputs/wrds_subsidiary_global_aliases_2026-11-03T100415049847Z.csv.gz",
+      "sha256": "4c91d8664fccf51236c500e40f657daf4288bbf86005d1fabdc62c80fbc6b463",
+      "extracted_utc": "2026-11-03T100415049847Z",
+      "analysis_cutoff": "2019-03-31"
+    }
+  }
+}

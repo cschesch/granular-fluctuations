@@ -13,9 +13,7 @@ __pycache__/
 .download-*/
 *.partial
 *.log
-**/.cache/**
-!**/.cache/**/
-!**/.cache/**/.gitkeep
+**/.cache/
 /output/
 /archive/
 /tmp/

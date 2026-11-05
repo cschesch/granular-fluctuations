@@ -1,37 +1,9 @@
 #!/usr/bin/env python3
-"""Compiled batched barrier kernels for the grouped-MGP SDPs.
+"""Numba implementations of the batched solver in fast_mgp.py.
 
-``fast_mgp`` writes the interior-point iteration in numpy, one batched LAPACK call
-per Newton step. That is the right shape for a stack of large matrices and the wrong
-one for this problem: the matrices are 10 x 10, so each ``np.linalg.inv`` spends
-~3 microseconds of per-matrix call overhead on ~0.7 microseconds of arithmetic, and
-the elementwise work allocates a (K,M,M) temporary every line. Ninety-five percent of
-the time is overhead.
-
-These kernels do the same iteration with the batch on the outside: numba compiles the
-whole Newton loop -- Cholesky, inverse, Hessian, solve, damped step -- to native code
-operating on one M x M problem in cache, and ``prange`` runs the batch across cores.
-The algorithm is unchanged, so ``test_inference_mc`` checks the two implementations
-agree to solver tolerance and both against cvxpy.
-
-Two kernels, matching the two members of the family in ``fast_mgp``:
-
-* ``barrier_full``    -- ``max w'nu s.t. Sigma - Diag(nu) >= 0``, the grouped and
-  weighted firm-level MGPs;
-* ``barrier_reduced`` -- ``max w'nu s.t. V'(Sigma - Diag(nu))V >= 0``, the
-  directional derivative over the dual optimal face. Its basis and mask are indexed
-  per problem, so one call can carry many replications' worth of bootstrap
-  directions even though every replication has its own face.
-
-Both take a per-coordinate nonnegativity mask, both return the terminal barrier
-parameter (the value is certified to within ``2 M mu``), and both flag the problems
-that ran away, which is how an unbounded reduced face announces itself.
-
-Being scalar, the kernels can also do something the vectorised version cannot afford:
-when a damped Newton step leaves the cone -- which the ill-conditioned face problems do
--- the Cholesky simply fails, and the step is halved and retried, so strict feasibility
-is maintained without the extra eigendecomposition per iteration that
-``fast_mgp._step_to_boundary`` needs.
+Each kernel solves one problem at a time, with parallel execution across
+problems. Steps are shortened when necessary to preserve positive
+definiteness. See NUMERICAL_METHODS.md for the algorithm and certificate.
 """
 
 from __future__ import annotations

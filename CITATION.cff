@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "Please cite How Granular Are Aggregate Fluctuations? by Constantin Schesch."
+title: "How Granular Are Aggregate Fluctuations? Replication code and data"
+type: software
+authors:
+  - family-names: Schesch
+    given-names: Constantin
+repository-code: "https://github.com/cschesch/granular-fluctuations"
+url: "https://github.com/cschesch/granular-fluctuations"

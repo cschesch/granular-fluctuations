@@ -22,11 +22,6 @@ WINDOWS = {'annual': ('2015-01-01', '2019-12-31'),
            'paper': ('2015-01-01', '2019-03-31')}
 
 
-def latest(stem):
-    paths = sorted(RAW.glob(stem + '_*.csv.gz'))
-    return paths[-1] if paths else None
-
-
 def ids(series):
     return series.astype('string').str.replace(r'\.0$', '', regex=True).str.zfill(6)
 
@@ -112,14 +107,14 @@ def main(*, quiet=False):
     universe = _firm_means().index
     report = dict(scope='Three-source matching audit; canonical network and estimator unchanged',
                   windows=WINDOWS, financial_firms=len(universe), inputs={})
-    source_path = latest('wrds_supply_chain_ids')
-    if source_path:
+    source_path = wrds_path('wrds_supply_chain_ids')
+    if source_path.is_file():
         report['inputs']['supply_chain_ids'] = str(source_path.relative_to(ROOT))
         report['source1'], matched = source1(base, pd.read_csv(source_path,
             dtype={'gvkey': 'string', 'cgvkey': 'string'}), universe)
-    subsidiary_path = latest('wrds_company_subsidiaries')
-    collision_path = latest('wrds_subsidiary_global_aliases')
-    if subsidiary_path and collision_path:
+    subsidiary_path = wrds_path('wrds_company_subsidiaries')
+    collision_path = wrds_path('wrds_subsidiary_global_aliases')
+    if subsidiary_path.is_file() and collision_path.is_file():
         from applications.welburn.welburn_subsidiary_matching import analyze_subsidiaries
         report['inputs']['subsidiaries'] = str(subsidiary_path.relative_to(ROOT))
         report['inputs']['subsidiary_global_collision_check'] = str(collision_path.relative_to(ROOT))

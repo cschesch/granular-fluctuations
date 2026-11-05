@@ -1,4 +1,4 @@
-"""Panel contract and shared input helpers for empirical applications."""
+"""Panel data structures and shared loading helpers."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ WEIGHT_TIMING = "pre_shock_t_minus_1_v1"
 
 @dataclass
 class SourcePanel:
+    """Already-cleaned units-by-time observations with size-snapshot metadata."""
+
     name: str
     y: pd.DataFrame  # units x time
     sizes: pd.Series

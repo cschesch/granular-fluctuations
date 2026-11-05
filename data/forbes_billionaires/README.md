@@ -1,12 +1,27 @@
-# Forbes archive snapshots
+# Forbes billionaire wealth
 
-The daily research snapshot is reconstructed from Internet Archive captures of
-Forbes's real-time billionaire list. `archive_cdx_daily.csv` preserves the capture
-URLs and archive digests. `source.json` records the exact local snapshot hash.
+This application uses Internet Archive captures of Forbes's real-time
+billionaire list. The repository includes the reconstruction script and
+`archive_cdx_daily.csv`, which lists the selected captures. The reconstructed
+wealth observations are not included.
 
-The public repository includes the acquisition code and capture manifest.
-The snapshot stays local under Forbes's redistribution terms.
-Run `python data/forbes_billionaires/build_forbes_billionaires_archive.py --help`
-for the replay options. Supply the local daily CSV to populate the application.
+## Required file
 
-Sources include https://www.forbes.com/terms/ and https://www.forbes.com/connect/permissions-data-licensing/.
+The application reads:
+
+```text
+data/forbes_billionaires/archive_realtime_daily.csv
+```
+
+`source.json` records the checksum of the data file used for the paper.
+
+## Reconstruction
+
+From the repository root:
+
+```sh
+python data/forbes_billionaires/build_forbes_billionaires_archive.py --help
+```
+
+The analysis code is in `code/applications/forbes/`. The reconstructed snapshots
+stay local under [Forbes's data terms](https://www.forbes.com/connect/permissions-data-licensing/).

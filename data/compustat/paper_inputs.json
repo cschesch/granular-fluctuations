@@ -1,0 +1,27 @@
+{
+  "description": "Paper input filenames and checksums only; licensed observations are not included.",
+  "datasets": {
+    "compustat_annual": {
+      "file": "compustat_annual_wrds_2026-11-02T164651983830Z.csv.gz",
+      "sha256": "48894ce1bca0ec0f942845b5d07f8b21249aa305350d12ee35d493772c8d5139",
+      "extracted_utc": "2026-11-02T145625947064Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    },
+    "compustat_customers": {
+      "file": "compustat_customers_wrds_2026-11-02T150322318509Z.csv.gz",
+      "sha256": "94b78f36a9affb020ea6f43d17f435cd7b409f45415f5ff3f8530e3ea397d397",
+      "extracted_utc": "2026-11-02T150322318509Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    },
+    "compustat_quarterly_sales": {
+      "file": "compustat_quarterly_sales_wrds_2026-11-02T164655281458Z.csv.gz",
+      "sha256": "232277dafedfba3cf1f37fecceb80f0c57f244038d5c894a3f1ce2224dd726fd",
+      "extracted_utc": "2026-11-02T143905066330Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_start_date": "1961-01-01",
+      "query_end_date": "2026-11-02"
+    }
+  }
+}

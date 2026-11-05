@@ -1,0 +1,69 @@
+{
+  "description": "Fixed paper reference estimates for three public-input applications. These values are not updated by a replication run.",
+  "reviewed_date": "2026-11-05",
+  "units": "Shares are fractions. N, T and M must match exactly. Absolute share tolerances are 0.000001 (0.0001 percentage points).",
+  "checks": [
+    {
+      "entity": "Countries",
+      "file": "additional_applications_summary.pkl",
+      "source": "Maddison Project Database 2023 via Our World in Data",
+      "sample": "1950–2022 levels; 1951–2022 growth",
+      "inputs": {
+        "data/maddison/maddison_project_gdp_2023_owid.csv": "86b1fae7e6219f258613367599f659cf15d752be3aef13231c9d814ac444fbd7"
+      },
+      "values": {
+        "MGP_share": 0.08222768467577712,
+        "Naive_homoscedastic": 0.8429184225804556,
+        "N": 141,
+        "T": 72,
+        "M": 10
+      },
+      "absolute_tolerances": {
+        "MGP_share": 1e-06,
+        "Naive_homoscedastic": 1e-06
+      }
+    },
+    {
+      "entity": "Banks",
+      "file": "additional_applications_summary.pkl",
+      "source": "FDIC BankFind Suite quarterly financials",
+      "sample": "1999Q4–2025Q4 levels; quarter-on-quarter growth 2000Q1–2025Q4",
+      "inputs": {
+        "data/fdic/fdic_quarterly_financials_1999q4_2025q4.csv": "1d88059eca85ab1b77fa67990ce08c176f970c53eba90383e668586d2d5e1905"
+      },
+      "values": {
+        "MGP_share": 0.3557119528293049,
+        "Naive_homoscedastic": 0.6676072528273539,
+        "N": 3853,
+        "T": 104,
+        "M": 10
+      },
+      "absolute_tolerances": {
+        "MGP_share": 1e-06,
+        "Naive_homoscedastic": 1e-06
+      }
+    },
+    {
+      "entity": "Country equity markets",
+      "file": "additional_applications_summary.pkl",
+      "source": "Kenneth French Data Library and World Bank WDI market capitalization",
+      "sample": "1976M1--2025M12",
+      "inputs": {
+        "data/french/F-F_International_Countries.zip": "6041ff104726d6aadfea76c4ef25af35594e799b90064b76b6bb83bd4acb0091",
+        "data/french/F-F_Research_Data_Factors_CSV.zip": "b03d39e4bb253dda0f14893db3b78e64b40b8d6549a0fc0fd4111dae84c98618",
+        "data/french/world_bank_CM.MKT.LCAP.CD_20_markets_1960_2025.json": "d2690602aee57580791003da77ca7607a8f1105842082d8e91c578007acd275a"
+      },
+      "values": {
+        "MGP_share": 0.23076544054470552,
+        "Naive_homoscedastic": 0.845518169982189,
+        "N": 12,
+        "T": 600,
+        "M": 10
+      },
+      "absolute_tolerances": {
+        "MGP_share": 1e-06,
+        "Naive_homoscedastic": 1e-06
+      }
+    }
+  ]
+}

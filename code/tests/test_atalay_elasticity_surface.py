@@ -53,13 +53,16 @@ def _cell(slab: dict, value_m: float, value_q: float) -> tuple[int, int]:
         )
     return i, j
 
+from tests.support import require_files
+
+TEST_GROUP = "integration"
+TEST_CACHE_INPUTS = (".cache/derived/atalay2017/elasticity_surface/*.mat", ".cache/derived/atalay2017/atalay_benchmark_*.csv", ".cache/run_outputs/atalay_elasticity_profile.csv", ".cache/run_outputs/atalay_elasticity_surface.csv")
+
 
 def main() -> int:
     required = [SURFACE_CSV, PROFILE_CSV, DEFAULT_SHOCKS_CSV]
     required.extend(SURFACE_ROOT / f"atalay_surface_epsD_{value}.mat" for value in (250, 500, 750, 900, 999, 1250))
-    if not all(path.is_file() for path in required):
-        print("[surface-test] SKIP full surface regression. Run make all with Stata and MATLAB to prepare and price the public grid.")
-        return 0
+    require_files(*required)
     solver = choose_solver("auto")
     # ``load_slabs`` returns paths, so that the pricer can farm them out to workers.
     slabs = [loadmat(path, squeeze_me=True) for path in load_slabs(SURFACE_ROOT)]

@@ -23,7 +23,7 @@ def load_bls_cpi_panel(use_cache: bool = True, refresh_cache: bool = False) -> S
     infl_path = panel_dir / f"cpi_{vintage}_inflation.parquet"
     if not leaves_path.exists() or not infl_path.exists():
         raise FileNotFoundError(
-            "Missing CPI panel files; run the prepare stage of paper_applications.py first."
+            "Missing CPI panel files; run the applications section of run_replication.py first."
         )
     cache_path = source_panel_cache_path(
         f"bls_cpi_{vintage}_inflation",

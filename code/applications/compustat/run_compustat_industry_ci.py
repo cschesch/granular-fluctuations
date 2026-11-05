@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """90% two-sided directional-bootstrap CIs and horizontal NAICS ceiling plot.
 
-Uses cached grouped nominal-sales panels. No resampling of firms, changes to
-classification assignments, or changes to main.tex. The same time-block draws
-are used for each classification. N in plot labels counts pre-LPT units.
+Uses cached grouped nominal-sales panels and fixed classification assignments.
+The same time-block draws are used for each classification; firms are not
+resampled. N in plot labels counts pre-LPT units.
 """
 from __future__ import annotations
 

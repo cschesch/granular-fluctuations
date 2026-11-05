@@ -7,13 +7,20 @@ import numpy as np
 
 from mgp_core import build_lpt_grouped_data, choose_solver, mgp_share
 from applications.acemoglu.panel import (
+    DATA_ROOT, EXPECTED_SOURCE_HASHES,
     load_nber_manufacturing_panel,
     validate_source_files,
     verify_original_replication_calculations,
 )
 
+from tests.support import require_files
+
+TEST_GROUP = "integration"
+TEST_CACHE_INPUTS = ()
+
 
 def main() -> int:
+    require_files(*(DATA_ROOT / name for name in EXPECTED_SOURCE_HASHES))
     validate_source_files()
     original = verify_original_replication_calculations()
     assert original["detailed_io_dimensions"] == [483, 524, 529, 510, 476, 474, 417]

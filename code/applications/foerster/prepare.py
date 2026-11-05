@@ -77,7 +77,7 @@ def prepare() -> bool:
     if octave is None:
         print("[skip] Foerster preparation: Octave is required to solve the deposited model", flush=True)
         return False
-    from applications.stella.solve_stella_dynamic import find_gensys, run_solver
+    from network_solver import find_gensys, run_solver
 
     try:
         gensys = find_gensys()
@@ -86,7 +86,7 @@ def prepare() -> bool:
         return False
     fingerprint = dict(source=str(source), files={
         str(path.relative_to(CODE_DIR)): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (Path(__file__), CODE_DIR / "stella_dynamic_solver.m")
+        for path in (Path(__file__), CODE_DIR / "network_solver.py", CODE_DIR / "network_dynamic_solver.m")
     }, gensys_sha256=hashlib.sha256((gensys / "gensys.m").read_bytes()).hexdigest())
     stamp = CACHE / "preparation.json"
     if stamp.is_file() and json.loads(stamp.read_text()) == fingerprint and all((EXPORTS / name).is_file() for name in OUTPUTS):

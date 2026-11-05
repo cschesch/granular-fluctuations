@@ -212,10 +212,10 @@ def prepare_observed_network(*, force=False):
     stems = ['wrds_supply_chain_ids', 'wrds_company_subsidiaries', 'wrds_subsidiary_global_aliases']
     files = [wrds_path('compustat_customers'), FUNDA, STELLA_ALIASES, WELBURN_ALIASES]
     for stem in stems:
-        found = sorted(RAW.glob(stem + '_*.csv.gz'))
-        if not found:
-            raise FileNotFoundError(f'Missing licensed local input: {stem}')
-        files.append(found[-1])
+        path = wrds_path(stem)
+        if not path.is_file():
+            raise FileNotFoundError(f'Missing licensed local input: {path}')
+        files.append(path)
     files += [Path(__file__).with_name(name) for name in [
         'prepare_welburn_links.py', 'audit_welburn_three_sources.py', 'welburn_subsidiary_matching.py']]
     fingerprint = {str(p.relative_to(ROOT)): sha256(p) for p in files}

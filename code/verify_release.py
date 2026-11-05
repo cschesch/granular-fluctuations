@@ -1,12 +1,14 @@
-"""Check release file hashes and compare its code and inputs to the research copy."""
+"""Verify bundled file checksums; optionally compare an exact release to its source."""
 
 import argparse
 import hashlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
 
 
 IGNORED = {".cache", "__pycache__", ".ruff_cache", ".matplotlib-cache", ".pytest_cache"}
 MANIFEST = "SHA256SUMS"
+DOCUMENTS = ("README.md", "CITATION.cff", "MAINTAINERS.md")
 
 
 def files(root: Path, folder: str) -> dict[str, Path]:
@@ -15,9 +17,17 @@ def files(root: Path, folder: str) -> dict[str, Path]:
         if IGNORED.intersection(path.parts) or path.name == ".DS_Store":
             continue
         if path.is_symlink():
-            raise ValueError(f"Release inputs must be regular files: {path}")
+            raise ValueError(f"Release files must be regular files: {path}")
         if path.is_file() and path.suffix not in {".pyc", ".pyo", ".lic"}:
             result[path.relative_to(root).as_posix()] = path
+    return result
+
+
+def release_files(root: Path) -> dict[str, Path]:
+    result = {**files(root, "code"), **files(root, "data"), **files(root, ".github")}
+    for name in DOCUMENTS:
+        if (root / name).is_file():
+            result[name] = root / name
     return result
 
 
@@ -29,21 +39,68 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def manifest_path(root: Path, name: str) -> Path:
+    relative = PurePosixPath(name)
+    if (not name or relative.is_absolute() or ".." in relative.parts
+            or relative.as_posix() != name or "\\" in name):
+        raise ValueError(f"Invalid manifest path: {name!r}")
+    path = root / name
+    if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
+        raise ValueError(f"Manifest path is a symlink or escapes the release: {name}")
+    return path
+
+
+def read_manifest(root: Path) -> dict[str, str]:
+    expected = {}
+    for number, line in enumerate((root / MANIFEST).read_text().splitlines(), 1):
+        match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+        if match is None:
+            raise ValueError(f"Invalid {MANIFEST} entry at line {number}")
+        digest, name = match.groups()
+        manifest_path(root, name)
+        if name in expected:
+            raise ValueError(f"Duplicate manifest path: {name}")
+        expected[name] = digest
+    if not expected:
+        raise ValueError(f"{MANIFEST} is empty")
+    return expected
+
+
+def verify(root: Path, *, exact: bool = False) -> dict[str, str]:
+    """Check listed files; additional inputs are allowed unless exact is requested."""
+    expected = read_manifest(root)
+    differing = []
+    for name, digest in expected.items():
+        path = manifest_path(root, name)
+        if not path.is_file() or sha256(path) != digest:
+            differing.append(name)
+    if exact:
+        differing.extend(release_files(root).keys() - expected.keys())
+    if differing:
+        raise ValueError(f"Release files differ: {sorted(differing)}")
+    return expected
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--source", type=Path, help="Research project root for byte comparisons.")
-    parser.add_argument("--write", action="store_true", help="Write SHA256SUMS after comparing source files.")
+    parser.add_argument("--exact", action="store_true", help="Also reject unlisted code, data and release documents.")
+    parser.add_argument("--source", type=Path, help="Require an exact release and compare it with the research project.")
+    parser.add_argument("--write", action="store_true", help="Write checksums after comparing with --source.")
     args = parser.parse_args()
+    if args.write and not args.source:
+        parser.error("--write requires --source")
     root = args.release.resolve()
-    paths = {**files(root, "code"), **files(root, "data")}
-    if not paths:
-        parser.error("The release must contain code and its selected inputs")
-    hashes = {name: sha256(path) for name, path in paths.items()}
+    if args.write:
+        paths = release_files(root)
+        if not paths:
+            parser.error("The release contains no files")
+        hashes = {name: sha256(manifest_path(root, name)) for name in paths}
+    else:
+        hashes = verify(root, exact=args.exact or bool(args.source))
     if args.source:
         source = args.source.resolve()
-        source_code = files(source, "code")
-        released_code = files(root, "code")
+        source_code, released_code = files(source, "code"), files(root, "code")
         if source_code.keys() != released_code.keys():
             missing = sorted(source_code.keys() - released_code.keys())
             extra = sorted(released_code.keys() - source_code.keys())
@@ -52,21 +109,10 @@ def main() -> None:
                      if not (source / name).is_file() or sha256(source / name) != digest]
         if different:
             raise ValueError(f"Files differ from the research copy: {different}")
-        print(f"Research copy matches all {len(source_code)} code files and {len(paths) - len(source_code)} input files.")
+        print(f"Research copy matches all {len(hashes)} selected release files.")
     if args.write:
-        if not args.source:
-            parser.error("--write requires --source")
         (root / MANIFEST).write_text("".join(f"{digest}  {name}\n" for name, digest in sorted(hashes.items())))
-    else:
-        expected = {}
-        for line in (root / MANIFEST).read_text().splitlines():
-            digest, name = line.split("  ", 1)
-            expected[name] = digest
-        differing = [name for name, digest in expected.items() if hashes.get(name) != digest]
-        differing.extend(hashes.keys() - expected.keys())
-        if differing:
-            raise ValueError(f"Release hashes differ: {sorted(differing)}")
-    print(f"Verified {len(hashes)} SHA-256 hashes.")
+    print(f"File integrity: verified {len(hashes)} SHA-256 hashes. Numerical results are checked separately.")
 
 
 if __name__ == "__main__":

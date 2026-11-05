@@ -53,13 +53,13 @@ def load_available(sources):
 
 
 def data_file(path: Path) -> Path:
-    """Read the preserved source in plain or losslessly compressed form."""
+    """Use the .gz file when the uncompressed file is absent."""
     compressed = path.with_suffix(path.suffix + ".gz")
     return compressed if not path.exists() and compressed.is_file() else path
 
 
 def upstream(study: str) -> Path:
-    """Extract a pinned author ZIP once into an immutable cache directory."""
+    """Extract the source archive into a cache folder named by its checksum."""
     import hashlib
     import json
     import shutil

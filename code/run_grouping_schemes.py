@@ -14,7 +14,7 @@ All schemes preserve the same aggregate covariance. This comparison concerns
 the predetermined size-only balance objective, not optimization of the MGP.
 
 Writes output/table_grouping_schemes_mc_new_tabular.tex and
-code/.cache/run_outputs/grouping_schemes_mc_new.csv. Never edits main.tex.
+code/.cache/run_outputs/grouping_schemes_mc_new.csv.
 """
 
 from __future__ import annotations
@@ -280,7 +280,7 @@ def main() -> None:
         if not np.isclose(rows.loc["lpt", "gbar_compustat"], canonical["mgp_share"], rtol=1e-8, atol=1e-10):
             raise RuntimeError("Grouping table does not match the headline quarterly Compustat ceiling")
     else:
-        print("[grouping] Skipping Compustat: quarterly sales snapshot absent", flush=True)
+        print("[skip] Grouping comparison: quarterly Compustat sales snapshot absent", flush=True)
 
     csv_path = RUN_OUTPUT_CACHE / f"{args.stem}.csv"
     out_path = OUTPUT_DIR / f"table_{args.stem}_tabular.tex"

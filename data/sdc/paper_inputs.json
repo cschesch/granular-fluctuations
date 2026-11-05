@@ -1,0 +1,12 @@
+{
+  "description": "Paper input filenames and checksums only; licensed observations are not included.",
+  "datasets": {
+    "sdc_new_issues": {
+      "file": "sdc_new_issues_wrds_2026-11-02T150504056255Z.csv.gz",
+      "sha256": "4b7d3c52f04e2be7f661d0f8b3a5ed428e90266a8f095e55b9d0b000bac68829",
+      "extracted_utc": "2026-11-02T150504056255Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    }
+  }
+}

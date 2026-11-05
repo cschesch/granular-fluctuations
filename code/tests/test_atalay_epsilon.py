@@ -22,11 +22,14 @@ WORKSPACE = DERIVED / "benchmark/atalay_eps_M_001.mat"
 PACKAGE_MEAN_CORRELATION_WITH_DIAGONAL = 0.0569212034435663
 PACKAGE_ONE_FACTOR_SHARE = 0.832264871355539
 
+from tests.support import require_files
+
+TEST_GROUP = "integration"
+TEST_CACHE_INPUTS = (".cache/derived/atalay2017/benchmark/*.mat", ".cache/derived/atalay2017/atalay_benchmark_*.csv")
+
 
 def main() -> int:
-    if not all(path.is_file() for path in (WORKSPACE, DEFAULT_SHOCKS_CSV, DEFAULT_NETWORK_V_CSV)):
-        print("[atalay-test] SKIP benchmark regression. Run applications.atalay.prepare --section benchmark first.")
-        return 0
+    require_files(WORKSPACE, DEFAULT_SHOCKS_CSV, DEFAULT_NETWORK_V_CSV)
     workspace = loadmat(WORKSPACE, squeeze_me=True, struct_as_record=False)
 
     # 1. The CSV exports are the untouched MATLAB objects.

@@ -27,9 +27,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from applications.compustat.panel import EXCLUDED_COMPUSTAT_SIC
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
-    EXCLUDED_COMPUSTAT_SIC,
     analysis_block_length,
     ROOT,
     OUTPUT_DIR,
@@ -41,7 +41,6 @@ from mgp_core import (
     make_panel_contiguous,
     make_panel_rng,
     mgp_share,
-    plot_lpt_squared_bucket_sizes,
     regularity_report,
     remove_periodic_means,
     resample_mgp,
@@ -53,6 +52,7 @@ from mgp_core import (
     standardize_panel,
     write_clean_panel_cache,
 )
+from plot_style import plot_lpt_squared_bucket_sizes
 
 import numpy as np
 import pandas as pd

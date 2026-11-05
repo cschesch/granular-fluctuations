@@ -103,7 +103,7 @@ def load_slabs(root: Path) -> list[Path]:
     if not slabs:
         raise FileNotFoundError(
             f"No slabs in {root}.  Run\n"
-            f"  matlab -batch \"run('{ROOT / 'code' / 'export_atalay_elasticity_surface.m'}')\"\n"
+            f"  matlab -batch \"run('{ROOT / 'code/applications/atalay' / 'export_atalay_elasticity_surface.m'}')\"\n"
             "to re-run the deposited Atalay filter over the 3-D grid first "
             "(or `make atalay-surface-export`, which runs the six slabs in parallel)."
         )

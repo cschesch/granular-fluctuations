@@ -1,0 +1,40 @@
+{
+  "description": "Paper input filenames and checksums only; licensed observations are not included.",
+  "datasets": {
+    "mutual_fund_daily_returns": {
+      "file": "mutual_fund_daily_returns_wrds_2026-11-02T150823106065Z.csv.gz",
+      "sha256": "c98394389bc39e2964441218f86f3bb4eb84d96dd7fa988d3c5bae4dd216495e",
+      "extracted_utc": "2026-11-02T150823106065Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    },
+    "mutual_fund_headers": {
+      "file": "mutual_fund_headers_wrds_2026-11-02T150057074423Z.csv.gz",
+      "sha256": "236f07ba516d92862ba8f8919e4bdd0e16ef50caf777e3f161f8d0adc214b595",
+      "extracted_utc": "2026-11-02T150057074423Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    },
+    "mutual_fund_monthly_assets": {
+      "file": "mutual_fund_monthly_assets_wrds_2026-11-02T150544404160Z.csv.gz",
+      "sha256": "967a6b03f8a0e380bd605d307a57bd62803e8d3c8c9dbba9df39c987b6a6b788",
+      "extracted_utc": "2026-11-02T150544404160Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    },
+    "mutual_fund_monthly_returns": {
+      "file": "mutual_fund_monthly_returns_wrds_2026-11-02T150209021763Z.csv.gz",
+      "sha256": "7e1b6bd3af75a60fefe8af23c7d3da3f037f719702ea04a118cb89736d68ae29",
+      "extracted_utc": "2026-11-02T150209021763Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    },
+    "mutual_fund_portfolio_map": {
+      "file": "mutual_fund_portfolio_map_wrds_2026-11-02T150158365933Z.csv.gz",
+      "sha256": "d7f02a06fb01ac31e484a936baa98dc12caa9e0afd5fa46a6fd00d0b25d168fd",
+      "extracted_utc": "2026-11-02T150158365933Z",
+      "analysis_cutoff": "2025-12-31",
+      "query_end_date": "2026-11-02"
+    }
+  }
+}

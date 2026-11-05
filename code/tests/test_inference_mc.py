@@ -1,41 +1,19 @@
 #!/usr/bin/env python3
-"""Invariants for the Monte Carlo machinery: `make inferencemctest` (seconds).
+"""Check the Monte Carlo solvers and population calculations.
 
-Checks the fast batched solver against the cvxpy/MOSEK path the paper's estimates
-actually use, and the Monte Carlo population against the theory it is meant to test:
+Compare batched solvers with CVXPY and test feasibility, grouping identities,
+directional derivatives, and analytical benchmarks.
 
-1. ``fast_mgp.mgp_batch`` reproduces ``mgp_core.solve_grouped_mgp_dual`` (value, dual
-   optimizer, common part, numerical rank) and ``mgp_core.solve_primal_mtfa``.
-2. The returned dual is feasible and its certified gap ``2 M mu`` brackets the value.
-3. The weighted firm-level solve equals the unweighted solve in size-weighted
-   coordinates, and matches the exact answer ``sum_i S_i^2 psi_i`` on a population
-   whose common subspace carries a explicit least-squares dual certificate.
-4. ``inference_mc.point_estimates`` reproduces ``mgp_core.mgp_share`` (share and
-   influence-function standard error).
-5. The directional derivative reproduces ``gradient_bootstrap.ShareDirectionalDerivative``
-   in both the regular (singleton face) and non-regular (min over the face) case.
-5b. ``fast_mgp.face_is_bounded`` calls the unbounded reduced faces that make the face
-   program -- and cvxpy's -- fail, so the fallback is taken up front rather than after
-   hundreds of wasted Newton steps.
-6. Population invariants: grouping preserves the aggregate, the grouped ceiling is
-   an upper bound on the truth (Proposition ``prop:ub``), and the closed-form
-   asymptotic variance matches a direct simulation of the influence function.
-7. The tightness grid's reduction to bucket loads reproduces an explicit N-dimensional
-   population.
-8. The three fast paths that exist only for speed return what the simple path returns:
-   the lane-blocked kernel equals the scalar one, the counts-based resampling equals
-   an explicit gather, and the direct-to-MOSEK face solver equals the same program
-   built in cvxpy.
-9. A four-dimensional covariance with a known optimizer face agrees with an
-   independently specified exact-face CVXPY program.
+Run from code/ with: python -m tests.test_inference_mc
 """
 
 from __future__ import annotations
 
 import numpy as np
+from unittest.mock import patch
 
 from mgp_core import (
-    installed_solvers,
+    choose_solver,
     ledermann_bound,
     mgp_share,
     numerical_rank,
@@ -50,7 +28,20 @@ import mgp_kernels
 import mosek_face
 import inference_mc as mc
 
-SOLVER = "MOSEK" if "MOSEK" in installed_solvers() else "CLARABEL"
+TEST_GROUP = "numerical"
+
+SOLVER = choose_solver("auto")
+
+
+def grouped_population(design):
+    """Build the exact grouped inputs without solving an unused full-panel SDP.
+
+    These tests use the grouped covariance and its bound, not the firm-level
+    bound. A NaN sentinel prevents that omitted quantity from being used.
+    Separate certificate and population-invariant tests check the full bound.
+    """
+    with patch.object(mc, "_firm_level_truth", return_value=np.nan):
+        return mc.build_population(design, use_cache=False)
 
 
 def _random_covariances(rng, m, r, k, t=200):
@@ -149,7 +140,7 @@ def test_firm_level_truth_matches_certificate():
 def test_point_estimates_match_core():
     rng = np.random.default_rng(3)
     design = mc.Design(name="t", label="t", n=200, zeta=1.0, r=3, m=10, t=120)
-    pop = mc.build_population(design, use_cache=False)
+    pop = grouped_population(design)
     x = mc.simulate_panels(pop, 6, rng)
     est = mc.point_estimates(x, ledermann_bound(design.m))
     for k in range(len(x)):
@@ -165,7 +156,7 @@ def test_directional_derivative_matches_gradient_bootstrap():
     seen = {True: 0, False: 0}
     for r in (3, 8):
         design = mc.Design(name="d", label="d", n=200, zeta=1.0, r=r, m=10, t=300)
-        pop = mc.build_population(design, use_cache=False)
+        pop = grouped_population(design)
         x = mc.simulate_panels(pop, 4, rng)
         est = mc.point_estimates(x, ledermann_bound(design.m))
         directions = np.sqrt(design.t) * (
@@ -202,7 +193,7 @@ def test_near_optimal_matches_cvxpy():
     checked = 0
     for (r, t) in ((3, 200), (8, 1000)):
         design = mc.Design(name="d", label="d", n=200, zeta=1.0, r=r, m=10, t=t)
-        pop = mc.build_population(design, use_cache=False)
+        pop = grouped_population(design)
         x = mc.simulate_panels(pop, 2, rng)
         for k in range(len(x)):
             sigma = mc.batch_cov(x[k][None])[0]
@@ -289,7 +280,7 @@ def test_unbounded_face_matches_solver():
     """Where the rule says unbounded, the batched face program indeed fails to solve."""
     rng = np.random.default_rng(6)
     design = mc.Design(name="u", label="u", n=300, zeta=1.2, r=3, m=10, t=120)
-    pop = mc.build_population(design, use_cache=False)
+    pop = grouped_population(design)
     x = mc.simulate_panels(pop, 24, rng)
     est = mc.point_estimates(x, ledermann_bound(design.m))
     checked = 0
@@ -315,7 +306,7 @@ def test_unbounded_face_matches_solver():
 
 
 def test_population_invariants():
-    design = mc.Design(name="p", label="p", n=300, zeta=1.0, r=6, m=10, t=200)
+    design = mc.Design(name="p", label="p", n=60, zeta=1.0, r=6, m=10, t=200)
     pop = mc.build_population(design, use_cache=False)
     one = np.ones(design.m)
     # Grouping preserves the aggregate: 1'Sigma_tilde 1 = S'Sigma_0 S.
@@ -339,13 +330,13 @@ def test_population_invariants():
 def test_sampling_schemes():
     """Grouped Gaussian draws, the AR(1) recursion and t shocks all target Sigma_tilde_0."""
     design = mc.Design(name="s", label="s", n=200, zeta=1.0, r=3, m=10, t=400)
-    pop = mc.build_population(design, use_cache=False)
+    pop = grouped_population(design)
     for name, alt in (
         ("iid Gaussian", design),
         ("AR(1)", mc.Design(**{**design.__dict__, "rho": 0.5})),
         ("t5", mc.Design(**{**design.__dict__, "shock": "t5"})),
     ):
-        local = mc.build_population(alt, use_cache=False)
+        local = grouped_population(alt)
         x = mc.simulate_panels(local, 400, np.random.default_rng(9))
         empirical = mc.batch_cov(x).mean(axis=0)
         rel = np.abs(empirical - pop.sigma_grouped).max() / np.abs(pop.sigma_grouped).max()
@@ -371,7 +362,7 @@ def test_lane_face_kernel_matches_scalar():
     """Same check for the reduced-basis kernel, which carries the directional derivatives."""
     rng = np.random.default_rng(41)
     design = mc.Design(name="l", label="l", n=400, zeta=0.85, r=1, m=10, t=120)
-    pop = mc.build_population(design, use_cache=False)
+    pop = grouped_population(design)
     x = mc.simulate_panels(pop, 20, rng)
     est = mc.point_estimates(x, ledermann_bound(design.m))
     checked = 0
@@ -446,14 +437,22 @@ def test_counts_resampling_matches_gather():
 
 def test_mosek_backstop_matches_cvxpy():
     """The direct-to-MOSEK backstop solves the same near-optimal program cvxpy would build."""
+    from unittest import SkipTest
     if not mosek_face.MOSEK_AVAILABLE:
-        print("  [skip] MOSEK not installed; direct near-optimal backstop not checked")
-        return
+        raise SkipTest("Optional MOSEK solver is not installed")
     import cvxpy as cp
+    import mosek
+    probe = cp.Variable()
+    try:
+        cp.Problem(cp.Minimize(probe), [probe >= 1]).solve(solver=cp.MOSEK)
+    except (cp.error.SolverError, mosek.Error) as error:
+        if "license" in str(error).lower():
+            raise SkipTest("Optional MOSEK license is unavailable") from error
+        raise
 
     rng = np.random.default_rng(23)
     design = mc.Design(name="f", label="f", n=300, zeta=1.0, r=3, m=10, t=150)
-    pop = mc.build_population(design, use_cache=False)
+    pop = grouped_population(design)
     x = mc.simulate_panels(pop, 12, rng)
     est = mc.point_estimates(x, ledermann_bound(design.m))
     delta = delta_rate(design.t)

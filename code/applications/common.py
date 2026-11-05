@@ -19,6 +19,8 @@ from mgp_core import (
 
 @dataclass
 class Application:
+    """Units-by-time outcomes; normalize weighted panels once, retain additive flows."""
+
     entity: str
     outcome: str
     source: str

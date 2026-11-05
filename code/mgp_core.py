@@ -1,25 +1,9 @@
 #!/usr/bin/env python3
-"""Shared estimation core for the grouped-MGP replication.
+"""Shared routines for estimating granularity bounds.
 
-Data-independent helpers shared by the application runners, diagnostics,
-exhibit builders, and tests:
-
-* panel helpers: size alignment, contiguous balancing, clean-panel caching
-  keyed on a content fingerprint of the raw sources;
-* longest-processing-time (LPT) bucketing of squared size shares;
-* the grouped-MGP dual SDP (cached, warm-started) and primal MTFA, with the
-  solver fallback chain;
-* the share estimator with its influence-function standard error, the time and
-  moving-block bootstraps, and Politis--Romano subsampling;
-* regularity/tightness diagnostics (numerical rank, Ledermann bound,
-  gap-bound ingredients);
-* the LPT squared-bucket-size figure (draft Figure 1) and shared plot helpers.
-
-The factor-rank LR/J tests live in ``factor_rank.py``.
-
-Each panel draws from a deterministic, order-independent random stream via
-``make_panel_rng``; do not change the numerical path of the estimators or
-resampling without expecting reproducible-table diffs.
+Includes panel preparation, LPT grouping, semidefinite optimization, inference,
+and numerical diagnostics. Factor-rank tests live in factor_rank.py; plotting
+helpers live in plot_style.py.
 """
 
 from __future__ import annotations
@@ -48,7 +32,6 @@ if LICENSE.exists():
     os.environ.setdefault("MOSEKLM_LICENSE_FILE", str(LICENSE))
 
 import cvxpy as cp
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
@@ -56,8 +39,6 @@ from scipy.stats import norm
 
 Z95 = float(norm.ppf(0.95))
 ANALYSIS_BOOTSTRAP_DRAWS = 1000
-# Gabaix-style exclusions shared by the annual and quarterly Compustat panels.
-EXCLUDED_COMPUSTAT_SIC = {1311, 1389, 2911, 5172} | set(range(4901, 4941)) | set(range(6001, 7001))
 _DUAL_PROBLEM_CACHE: dict[int, tuple[cp.Problem, cp.Parameter, cp.Variable]] = {}
 _INSTALLED_SOLVERS: set[str] | None = None
 
@@ -71,19 +52,12 @@ def atomic_write_pickle(obj: object, path: Path) -> None:
 
 
 def _content_fingerprint(p: Path, chunk: int = 1 << 20) -> str:
-    """Cheap content hash: size + sha256 of the first and last megabyte.
-
-    Robust to mtime churn (Dropbox re-syncs) without paying a full-file hash on
-    multi-gigabyte sources.
-    """
-    size = p.stat().st_size
-    h = hashlib.sha256(str(size).encode())
+    """SHA-256 of the complete input, including changes outside its endpoints."""
+    h = hashlib.sha256()
     with open(p, "rb") as f:
-        h.update(f.read(chunk))
-        if size > 2 * chunk:
-            f.seek(size - chunk)
-            h.update(f.read(chunk))
-    return h.hexdigest()[:16]
+        for block in iter(lambda: f.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def source_signature(paths: list[Path]) -> list[dict[str, object]]:
@@ -101,6 +75,10 @@ def source_signature(paths: list[Path]) -> list[dict[str, object]]:
 
 
 def clean_panel_cache_path(prefix: str, params: dict[str, object], sources: list[Path]) -> Path:
+    """Key cleaned data on full input hashes and the caller's cleaning parameters.
+
+    Increment params['version'] when the panel's cleaning rules change.
+    """
     payload = {
         "prefix": prefix,
         "params": params,
@@ -125,13 +103,7 @@ def write_clean_panel_cache(path: Path, payload: dict[str, object]) -> None:
 
 
 def make_panel_rng(base_seed: int, name: str) -> np.random.Generator:
-    """Deterministic per-panel generator, independent of job order.
-
-    Mixing a stable hash of the panel name into the seed sequence means each
-    panel's bootstrap draws depend only on ``(base_seed, name)`` and not on what
-    else ran before it, so any single panel reproduces bit-for-bit regardless of
-    which other panels are in the same run.
-    """
+    """Create a panel-specific random stream independent of run order."""
     digest = hashlib.sha256(name.encode("utf-8")).digest()
     name_int = int.from_bytes(digest[:8], "big")
     return np.random.default_rng(np.random.SeedSequence([int(base_seed), name_int]))
@@ -141,9 +113,7 @@ def choose_solver(requested: str) -> str:
     if requested != "auto":
         return requested.upper()
     installed = installed_solvers()
-    # CLARABEL first: on these small grouped SDPs it is several times faster than
-    # MOSEK, gives an identical objective, and returns a more accurate dual matrix
-    # at the tiny problem scale. MOSEK/SCS remain as fallbacks.
+    # Prefer CLARABEL, then MOSEK, then SCS.
     for solver in ("CLARABEL", "MOSEK", "SCS"):
         if solver in installed:
             return solver
@@ -835,177 +805,3 @@ def subsampling_summary(draws: pd.DataFrame, g_hat: float, t: int, alpha: float 
         "subsample_p95": float(g_hat - w_lo / rt),
         "subsample_ucl95": float(g_hat - w_a / rt),
     }
-
-
-def plot_lpt_squared_bucket_sizes(
-    firm_diag: pd.DataFrame,
-    bucket_diag: pd.DataFrame,
-    path_base: Path,
-    ylabel: str | None = None,
-    xlabel: str = "LPT bucket",
-    figsize_scale: tuple[float, float] = (1.0, 1.0),
-) -> None:
-    """Stack each unit's S_i^2 contribution within its LPT bucket (draft Figure 1)."""
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    ordered = firm_diag.sort_values("size_share_sq", ascending=False)
-    color_by_index = {idx: colors[j % len(colors)] for j, idx in enumerate(ordered.index)}
-
-    def name_column() -> str | None:
-        for candidate in ("name", "label", "description", "unit_id", "gvkey"):
-            if candidate in firm_diag.columns:
-                return candidate
-        return None
-
-    display_aliases = {
-        "WALMART": "Walmart",
-        "GENERAL MOTORS": "General Motors",
-        "FORD MOTOR": "Ford Motor",
-        "GE AEROSPACE": "GE Aerospace",
-        "INTL BUSINESS MACHINES": "IBM",
-        "DISNEY (WALT)": "Disney",
-        "LOCKHEED MARTIN": "Lockheed Martin",
-        "XEROX HOLDINGS": "Xerox",
-        "COCA-COLA": "Coca-Cola",
-        "ALTRIA GROUP": "Altria",
-        "HOME DEPOT": "Home Depot",
-        "PFIZER": "Pfizer",
-        "MACY'S": "Macy's",
-        "AUTONATION": "AutoNation",
-        "VERIZON COMMUNICATIONS": "Verizon",
-        "CARDINAL HEALTH": "Cardinal Health",
-        "COSTCO WHOLESALE": "Costco",
-        "MONDELEZ INTERNATIONAL": "Mondelez",
-        "CONAGRA BRANDS": "Conagra",
-        "AT&T": "AT&T",
-        "PROCTER & GAMBLE": "Procter & Gamble",
-        "INTEL": "Intel",
-        "JOHNSON & JOHNSON": "Johnson & Johnson",
-        "RTX": "RTX",
-        "HP": "HP",
-        "BOEING": "Boeing",
-        "MCKESSON": "McKesson",
-        "DUPONT DE NEMOURS": "DuPont",
-        "INTL PAPER": "International Paper",
-        "KROGER": "Kroger",
-        "TARGET": "Target",
-        "MOTOROLA SOLUTIONS": "Motorola",
-        "UNITED PARCEL SERVICE": "UPS",
-        "HONEYWELL INTERNATIONAL": "Honeywell",
-    }
-    acronym_aliases = {
-        "AT&T": "AT&T",
-        "GE": "GE",
-        "GM": "GM",
-        "HP": "HP",
-        "IBM": "IBM",
-        "P&G": "P&G",
-        "RTX": "RTX",
-        "UPS": "UPS",
-        "US": "US",
-        "USA": "USA",
-    }
-
-    def capital_case(text: str) -> str:
-        def convert_token(token: str) -> str:
-            upper = token.upper()
-            if token.lower() == "and":
-                return "&"
-            if upper in acronym_aliases:
-                return acronym_aliases[upper]
-            if "-" in token:
-                return "-".join(convert_token(part) for part in token.split("-"))
-            if "'" in token:
-                parts = token.lower().split("'")
-                return "'".join(part[:1].upper() + part[1:] if part else part for part in parts)
-            lower = token.lower()
-            return lower[:1].upper() + lower[1:] if lower else token
-
-        return " ".join(convert_token(token) for token in text.split())
-
-    def short_name(value: object, max_chars: int) -> str:
-        text = str(value).strip()
-        for old, new in (
-            ("IP: ", ""),
-            ("(SA, 2002=100)", ""),
-            ("_other", " other"),
-            ("  ", " "),
-        ):
-            text = text.replace(old, new)
-        if "/" in text:
-            parts = []
-            seen = set()
-            for part in text.split("/"):
-                part = part.strip()
-                key = part.lower()
-                if part and key not in seen:
-                    parts.append(part)
-                    seen.add(key)
-            if len(parts) > 2:
-                text = f"{parts[0]} / {parts[-1]}"
-            elif parts:
-                text = " / ".join(parts)
-        text = " ".join(text.split())
-        text = display_aliases.get(text.upper(), capital_case(text))
-        if len(text) > max_chars:
-            text = text[: max_chars - 3].rstrip() + "..."
-        return text
-
-    n_buckets = int(bucket_diag["bucket"].nunique())
-    fig_width = max(12.0, 0.7 * n_buckets)
-    fig, ax = plt.subplots(figsize=(fig_width * figsize_scale[0], 5.2 * figsize_scale[1]))
-    bottoms = {int(b): 0.0 for b in bucket_diag["bucket"]}
-    for bucket in sorted(bottoms):
-        rows = firm_diag.loc[firm_diag["bucket"] == bucket].sort_values("size_share_sq", ascending=False)
-        for idx, row in rows.iterrows():
-            height = float(row["size_share_sq"])
-            ax.bar(
-                bucket + 1,
-                height,
-                width=0.74,
-                bottom=bottoms[bucket],
-                color=color_by_index[idx],
-                edgecolor=(1, 1, 1, 0.45),
-                linewidth=0.12,
-            )
-            bottoms[bucket] += height
-
-    y_max = max(bottoms.values())
-    max_chars = 22 if n_buckets <= 12 else 16 if n_buckets <= 30 else 12
-    label_fontsize = 5.0 if n_buckets <= 12 else 4.2 if n_buckets <= 30 else 3.6
-    name_col = name_column()
-    max_label_lines = 1
-    for _, row in bucket_diag.iterrows():
-        bucket = int(row["bucket"])
-        total = float(row["total_sq_share"])
-        n_firms = int(row["n_firms"])
-        bucket_rows = firm_diag.loc[firm_diag["bucket"] == bucket].sort_values("size_share_sq", ascending=False)
-        n_names = 1 if n_firms == 1 else 3
-        names = []
-        if name_col is not None:
-            names = [
-                short_name(value, max_chars)
-                for value in bucket_rows[name_col].head(n_names)
-            ]
-        lines = [f"n={n_firms}", *names]
-        if names and n_firms > len(names):
-            lines.append("...")
-        max_label_lines = max(max_label_lines, len(lines))
-        ax.text(
-            bucket + 1,
-            total + 0.025 * y_max,
-            "\n".join(lines),
-            ha="center",
-            va="bottom",
-            fontsize=label_fontsize,
-            linespacing=1.05,
-        )
-
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel or r"Bucket squared size load: $\sum_{i\in B_m} S_i^2$")
-    ax.set_xticks(np.arange(1, len(bottoms) + 1))
-    ax.set_xlim(0.35, len(bottoms) + 0.65)
-    ax.set_ylim(0, y_max * (1.18 + 0.11 * max_label_lines))
-    fig.tight_layout()
-    fig.savefig(path_base.with_suffix(".png"), dpi=220)
-    fig.savefig(path_base.with_suffix(".pdf"))
-    plt.close(fig)

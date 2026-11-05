@@ -34,7 +34,7 @@ Gaussianizes the fringe buckets while singleton buckets keep the raw tail -- whi
 is itself the interesting case.
 
 All SDPs go through ``fast_mgp``: a replication's whole bootstrap is one batched
-interior-point solve. ``run_mc_new.py`` drives the designs, ``plot_mc_new.py`` writes
+interior-point solve. ``run_inference_mc.py`` drives the designs, ``plot_inference_mc.py`` writes
 the exhibits, and ``test_inference_mc.py`` checks this module against
 ``mgp_core``/``gradient_bootstrap``.
 """

@@ -6,26 +6,19 @@ never edited. Environment overrides support labelled same-vintage comparisons.
 """
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
 import pandas as pd
 
 from mgp_core import ROOT
+from wrds_inputs import wrds_path
 from applications.stella.stella_provenance import file_fingerprints, verify_fingerprints
 
-STATUS = ROOT / 'data/stella2015/wrds_inputs/latest_acquisition_status.json'
 REVENUE_FIELD = os.environ.get('STELLA_REVENUE_FIELD', 'revtq')
 if REVENUE_FIELD not in {'revtq', 'saleq'}:
     raise ValueError('STELLA_REVENUE_FIELD must be revtq or an explicitly labelled saleq comparison')
-if os.environ.get('STELLA_QUARTERLY_FILE'):
-    QFILE = Path(os.environ['STELLA_QUARTERLY_FILE']).resolve()
-else:
-    status = json.loads(STATUS.read_text())
-    if status.get('status') != 'downloaded' or not status.get('revtq_available'):
-        raise ValueError('A verified Stella revenue extract is required; no saleq fallback')
-    QFILE = STATUS.parent / status['file']
+QFILE = wrds_path('stella_quarterly', path=os.environ.get('STELLA_QUARTERLY_FILE'))
 
 
 def read_quarterly(columns, *, path=None, field=None):

@@ -18,10 +18,10 @@ from mgp_core import (
     build_lpt_grouped_data,
     choose_solver,
     make_panel_rng,
-    plot_lpt_squared_bucket_sizes,
     regularity_report,
     sample_cov,
 )
+from plot_style import plot_lpt_squared_bucket_sizes
 from applications.panels import SourcePanel
 from applications.networks import (
     cap_dynamic_share_report,

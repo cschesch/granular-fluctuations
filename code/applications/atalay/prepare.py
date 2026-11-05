@@ -20,7 +20,7 @@ ARCHIVE = ROOT / "data/atalay2017/replication_elasticities.zip"
 ARCHIVE_SHA256 = "bea450fd194343a2c13ef48212ff63c9898727dde51ccaac618f95daa77a2ce7"
 DERIVED = CODE_DIR / ".cache/derived/atalay2017"
 WORK = DERIVED / "replication_package"
-DRIVERS = (CODE_DIR / "export_atalay_elasticity_profile.m", CODE_DIR / "export_atalay_elasticity_surface.m")
+DRIVERS = tuple(Path(__file__).with_name(name) for name in ("export_atalay_elasticity_profile.m", "export_atalay_elasticity_surface.m"))
 STATA_FILES = ("dataKJ.csv", "dataMJ.csv", "dataOJ.csv", "ioJ_data_dt.csv")
 
 

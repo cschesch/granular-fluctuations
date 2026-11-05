@@ -1,6 +1,10 @@
-"""Validate, collect, and sync the external artifacts used by the paper."""
+"""Check and collect the paper's figures and tables.
+
+Optionally copy them to the manuscript folder.
+"""
 
 import argparse
+import json
 from pathlib import Path
 import re
 import shutil
@@ -12,6 +16,8 @@ from project_paths import CODE_DIR, ROOT
 MANUSCRIPT = ROOT / "overleaf" / "main.tex"
 OUTPUT = ROOT / "output"
 INTERMEDIATES = CODE_DIR / ".cache" / "nonpaper_outputs"
+RUN_REPORT = OUTPUT / "run_report.json"
+RUN_FILES = {"run_report.json", "result_checks.json"}
 
 # This list also lets the replication checkout run without the manuscript.
 EXHIBITS = {
@@ -78,7 +84,7 @@ def collect_outputs(names: set[str]) -> None:
     """Keep only paper artifacts in output/ and retain other generated files in the cache."""
     INTERMEDIATES.mkdir(parents=True, exist_ok=True)
     for item in OUTPUT.iterdir():
-        if item.name in names:
+        if item.name in names or item.name in RUN_FILES:
             continue
         destination = INTERMEDIATES / item.name
         if item.is_dir() and not item.is_symlink() and destination.is_dir():
@@ -117,6 +123,7 @@ def main() -> None:
     parser.add_argument("action", choices=("check", "collect", "sync"))
     parser.add_argument("--manuscript", type=Path, default=MANUSCRIPT)
     parser.add_argument("--since", type=Path, help="Require outputs written since this marker.")
+    parser.add_argument("--strict", action="store_true", help="Also require a complete run report.")
     args = parser.parse_args()
     names = EXHIBITS
     if args.manuscript.is_file() or args.action == "sync":
@@ -124,11 +131,20 @@ def main() -> None:
         if draft_names != names:
             raise ValueError(f"Update EXHIBITS for the draft's changed files: {sorted(draft_names ^ names)}")
     check_outputs(names, args.since)
+    report = json.loads(RUN_REPORT.read_text()) if RUN_REPORT.exists() else {}
+    status = report.get("status", "unknown")
+    sections = {row["section"] for row in report.get("analyses", [])}
+    if args.strict:
+        if status != "complete":
+            raise RuntimeError(f"Run completeness is {status}; see {RUN_REPORT}.")
+        if not {"applications", "variations", "simulations", "empirical"} <= sections:
+            raise RuntimeError(f"Run report does not cover the full paper; see {RUN_REPORT}.")
     if args.action == "collect":
         collect_outputs(names)
     elif args.action == "sync":
         sync_outputs(args.manuscript, names)
-    print(f"{args.action}: {len(names)} paper artifacts")
+    print(f"{args.action}: {len(names)} figure/table files present; run completeness: {status}.")
+    print("File presence does not verify numerical results. Use make check-results.")
 
 
 if __name__ == "__main__":

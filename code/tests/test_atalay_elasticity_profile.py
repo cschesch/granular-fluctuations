@@ -47,8 +47,15 @@ def grid_point(index: pd.DataFrame, profile_dir, value: float) -> dict:
     assert row["status"] == "ok", f"grid point value={value} failed: {row['status']}"
     return loadmat(profile_dir / str(row["file"]), squeeze_me=True)
 
+from tests.support import require_files
+
+TEST_GROUP = "integration"
+TEST_CACHE_INPUTS = (".cache/derived/atalay2017/elasticity_profile/*/*", ".cache/derived/atalay2017/atalay_benchmark_*.csv", ".cache/run_outputs/atalay_elasticity_profile.csv")
+
 
 def main() -> int:
+    require_files(PROFILE_CSV, DEFAULT_SHOCKS_CSV, DEFAULT_NETWORK_V_CSV,
+                  *(PROFILE_ROOT / sweep / "grid_index.csv" for sweep in SWEEPS))
     profile = pd.read_csv(PROFILE_CSV)
     indexes = {}
     for sweep in SWEEPS:

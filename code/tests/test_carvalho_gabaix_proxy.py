@@ -7,14 +7,21 @@ import numpy as np
 
 from mgp_core import build_lpt_grouped_data, choose_solver, mgp_share
 from applications.carvalho_gabaix.run_carvalho_gabaix_proxy import (
+    EXPECTED_SOURCE_HASHES,
     Calibration,
     invert_measured_tfp,
     load_historical_panel,
     validate_source_files,
 )
 
+from tests.support import require_files
+
+TEST_GROUP = "integration"
+TEST_CACHE_INPUTS = ()
+
 
 def main() -> int:
+    require_files(*EXPECTED_SOURCE_HASHES)
     validate_source_files()
     calibration = Calibration()
     assert np.isclose(calibration.beta, 30.0 / 11.0)

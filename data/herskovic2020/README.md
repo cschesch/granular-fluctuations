@@ -1,17 +1,21 @@
 # Herskovic et al. (2020)
 
-`replication_package/` preserves the local author release for
-*Firm Volatility in Granular Networks*, DOI 10.1086/710345. It contains the
-original MATLAB/Stata code, fitted parameters, linkage file, public deflators,
-and licensed Compustat/CRSP observations. Source details are in `source.json`.
-The journal currently returns HTML to the programmatic archive request.
-Generated execution output and exporter executable-path caches are archived
-separately; original code, parameters and source observations are retained.
+This folder contains code and public inputs from the replication package for
+*Firm Volatility in Granular Networks*. Source information is in `source.json`.
+Licensed Compustat/CRSP observations and restricted linkage inputs must be
+obtained separately.
 
-Our application is in `code/applications/herskovic/` and reads the deposit
-without editing it. Its model-size export reproduces the author's 5,000-firm
-MATLAB draw using seed 100. Rebuilding that draw needs MATLAB with the Statistics and Machine Learning Toolbox. All generated
-sizes, completed networks and recovered shocks live under `code/.cache/`.
+Our analysis code is in `code/applications/herskovic/`. Its preparation step
+requires MATLAB with Statistics and Machine Learning Toolbox and reproduces
+the authors' 5,000-firm model-size draw with seed 100. Set `MATLAB` to the
+executable path when it is not on PATH.
 
-The public release retains the original code and source instructions. Its
-licensed observations and linkage inputs are supplied separately by users.
+From the repository root, with the Python environment activated:
+
+```sh
+cd code
+python -m applications.herskovic.prepare
+```
+
+The MATLAB exporter is alongside that preparation script. Generated sizes,
+networks, and recovered shocks are stored under `code/.cache/`.
