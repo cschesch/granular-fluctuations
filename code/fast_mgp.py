@@ -485,12 +485,6 @@ def mgp_batch(sigma: np.ndarray, **kwargs) -> BatchSolution:
     return solve_batch(sigma, nonneg=True, basis=None, **kwargs)
 
 
-def mgp_shares_batch(sigma: np.ndarray, **kwargs) -> tuple[np.ndarray, BatchSolution]:
-    """Grouped shares ``gamma_bar = Gamma_bar(Sigma)/(1'Sigma 1)`` and the full solution."""
-    sol = mgp_batch(sigma, **kwargs)
-    return sol.value / _as_batch(sigma).sum(axis=(-2, -1)), sol
-
-
 def common_rank(common: np.ndarray, rel_tol: float = 1e-3) -> np.ndarray:
     """Numerical rank of each C in a stack, matching ``mgp_core.numerical_rank``."""
     eig = np.linalg.eigvalsh(_symmetrize(common))

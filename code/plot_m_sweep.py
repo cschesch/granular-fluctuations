@@ -33,10 +33,13 @@ from mgp_core import (
     atomic_write_pickle,
     build_lpt_grouped_data,
     choose_solver,
-    installed_solvers,
     make_panel_rng,
 )
-import run_multi_source as multi
+from applications.bls_ces.panel import load_bls_ces_panel
+from applications.bls_cpi.panel import load_bls_cpi_panel
+from applications.crsp.panel import load_crsp_panel
+from applications.forbes.panel import FORBES_ARCHIVE_DAILY, load_forbes_billionaire_panels
+from run_multi_source import DAILY_HIGH_M_THRESHOLD
 from plot_expanded_applications import available_items
 
 # Import plotting only after mgp_core has configured its writable cache directory.
@@ -90,7 +93,7 @@ def sweep(
         x_grouped, *_ = build_lpt_grouped_data(y, shares, m)
         job_solver = (
             "MOSEK"
-            if is_daily and m >= multi.DAILY_HIGH_M_THRESHOLD and licensed_mosek()
+            if is_daily and m >= DAILY_HIGH_M_THRESHOLD and licensed_mosek()
             else solver
         )
         block_length = analysis_block_length(x_grouped.shape[0])
@@ -147,9 +150,9 @@ def compute_sweep_results(solver: str, bootstrap_b: int, seed: int,
                           only: list[str] | None = None,
                           available: set[str] | None = None) -> pd.DataFrame:
     jobs = []
-    loaders = [multi.load_bls_ces_panel, multi.load_bls_cpi_panel,
-               lambda: multi.load_crsp_panel(20 * 252),
-               lambda: multi.load_forbes_billionaire_panels(None, multi.FORBES_ARCHIVE_DAILY)[0]]
+    loaders = [load_bls_ces_panel, load_bls_cpi_panel,
+               lambda: load_crsp_panel(20 * 252),
+               lambda: load_forbes_billionaire_panels(None, FORBES_ARCHIVE_DAILY)[0]]
     for label, item, loader in zip(PANEL_LABELS, FIGURE_ITEMS, loaders, strict=True):
         if only and label not in only:
             continue

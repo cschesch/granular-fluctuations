@@ -167,7 +167,7 @@ def rule_m_from_grid(profile_root: Path) -> int:
         ok = index[index["status"].astype(str).eq("ok") & index["file"].astype(str).str.strip().ne("")]
         if not ok.empty:
             shocks = np.asarray(loadmat(profile_root / sweep / str(ok.iloc[0]["file"]), squeeze_me=True)["shocks"], dtype=float)
-            return rule_m(shocks.shape[1], shocks.shape[0])   # shocks are T x N
+            return rule_m(shocks.shape[1])   # shocks are T x N
     raise FileNotFoundError(f"No successful filter export under {profile_root}")
 
 

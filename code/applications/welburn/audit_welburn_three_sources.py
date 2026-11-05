@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from applications.welburn.prepare_welburn_links import normalize_name

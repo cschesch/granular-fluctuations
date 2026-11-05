@@ -16,8 +16,8 @@ import pandas as pd
 
 from mgp_core import ROOT
 from applications.stella.prepare_stella_calibration import load_quarterly, released_screen_panel
-from run_multi_source import load_gdp_deflator
-from applications.stella.stella_provenance import archive_existing, file_fingerprints, verify_fingerprints
+from applications.panels import load_gdp_deflator
+from applications.stella.stella_provenance import archive_existing, file_fingerprints
 from applications.stella.stella_quarterly_inputs import input_description, verify_input_provenance
 
 DEFAULT_SOURCE = ROOT / "code/.cache/firm_networks/stella_literal"

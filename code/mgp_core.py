@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Shared estimation core for the grouped-MGP replication.
 
-Everything independent of the specific data source, imported by the run and
-diagnostic scripts (``run_compustat_quarterly``, ``run_multi_source``,
-``run_foerster_epsilon``, ``compute_bias``, ``check_regularity``,
-``check_factor_rank``, ``plot_m_sweep``, ``test_core``):
+Data-independent helpers shared by the application runners, diagnostics,
+exhibit builders, and tests:
 
 * panel helpers: size alignment, contiguous balancing, clean-panel caching
   keyed on a content fingerprint of the raw sources;
@@ -341,11 +339,6 @@ def standardize_panel(frame: pd.DataFrame, q: float = 0.01) -> pd.DataFrame:
     return clipped - grand_mean
 
 
-def standardize_growth(frame: pd.DataFrame, q: float = 0.01) -> pd.DataFrame:
-    """Backward-compatible alias for :func:`standardize_panel`."""
-    return standardize_panel(frame, q)
-
-
 def analysis_block_length(t: int, overlap_horizon: int = 1) -> int:
     """Paper-wide moving-block rule, bounded by the observed time dimension."""
     if t < 1:
@@ -374,12 +367,10 @@ def remove_periodic_means(frame: pd.DataFrame, period: int) -> pd.DataFrame:
     return adjusted
 
 
-def rule_m(n_units: int, t: int | None = None, frequency: str = "") -> int:
+def rule_m(n_units: int, frequency: str = "") -> int:
     """Paper-wide grouping dimension: M=10, or M=30 for daily data.
 
-    ``t`` is retained for backwards-compatible callers but no longer determines
-    the main specification.  The cross-sectional dimension remains an upper
-    bound in the unlikely event that an application has fewer units.
+    The number of units is an upper bound when an application has fewer units.
     """
     daily = "daily" in str(frequency).lower()
     return int(min(int(n_units), 30 if daily else 10))
@@ -388,14 +379,14 @@ def rule_m(n_units: int, t: int | None = None, frequency: str = "") -> int:
 def rule_summary_stem(stem: str) -> str:
     """Return ``f"{stem}_M{m}"`` for the cached paper-specification run.
 
-    Reads N, T and M back from the ``*_summary.pkl`` files under
+    Reads N and M back from the ``*_summary.pkl`` files under
     RUN_OUTPUT_CACHE, so consumers never hard-code an M.
     """
     import pandas as pd
     hits = []
     for path in sorted(RUN_OUTPUT_CACHE.glob(f"{stem}_M*_summary.pkl")):
         s = pd.read_pickle(path).iloc[0]
-        if int(s["M"]) == rule_m(int(s["N"]), int(s["T"]), str(s.get("frequency", ""))):
+        if int(s["M"]) == rule_m(int(s["N"]), str(s.get("frequency", ""))):
             hits.append(path.name[: -len("_summary.pkl")])
     if len(hits) != 1:
         raise FileNotFoundError(
@@ -844,78 +835,6 @@ def subsampling_summary(draws: pd.DataFrame, g_hat: float, t: int, alpha: float 
         "subsample_p95": float(g_hat - w_lo / rt),
         "subsample_ucl95": float(g_hat - w_a / rt),
     }
-
-
-def index_from_log_growth(log_growth: pd.Series, baseline: float = 100.0) -> pd.Series:
-    """Compound a log-growth series into an index normalized at ``baseline``."""
-    out = baseline * np.exp(log_growth.astype(float).cumsum())
-    out.name = log_growth.name
-    return out
-
-
-def fixed_weight_log_growth(component_log_growth: pd.DataFrame, shares: pd.Series) -> pd.Series:
-    """Aggregate component log growth with fixed component shares."""
-    aligned_shares = shares.reindex(component_log_growth.columns).astype(float)
-    if aligned_shares.isna().any():
-        missing = aligned_shares[aligned_shares.isna()].index.tolist()[:10]
-        raise ValueError(f"Missing fixed weights for component columns: {missing}")
-    if component_log_growth.isna().any(axis=None):
-        raise ValueError("Component log-growth panel contains missing values.")
-    out = component_log_growth.mul(aligned_shares, axis=1).sum(axis=1)
-    out.name = "fixed_weight_log_growth"
-    return out
-
-
-def plot_fixed_weight_vs_actual_index(
-    component_log_growth: pd.DataFrame,
-    shares: pd.Series,
-    actual_log_growth: pd.Series,
-    path_base: Path,
-    *,
-    title: str,
-    fixed_label: str = "Fixed-weight aggregate",
-    actual_label: str = "Actual aggregate",
-    baseline: float = 100.0,
-) -> pd.DataFrame:
-    """Plot a fixed-weight component aggregate against an observed aggregate.
-
-    Returns the plotted data with columns ``fixed_weight_index``,
-    ``actual_index``, and ``fixed_minus_actual_pct``. The caller supplies log
-    growth for both component units and the observed aggregate; both are
-    compounded from the same normalized baseline.
-    """
-    actual_log_growth = actual_log_growth.reindex(component_log_growth.index).astype(float)
-    if actual_log_growth.isna().any():
-        missing = actual_log_growth[actual_log_growth.isna()].index.tolist()[:10]
-        raise ValueError(f"Actual aggregate log growth is missing for plotted dates: {missing}")
-
-    fixed_growth = fixed_weight_log_growth(component_log_growth, shares)
-    fixed_index = index_from_log_growth(fixed_growth, baseline=baseline)
-    actual_index = index_from_log_growth(actual_log_growth.rename("actual_log_growth"), baseline=baseline)
-    plotted = pd.DataFrame(
-        {
-            "fixed_weight_index": fixed_index,
-            "actual_index": actual_index,
-        }
-    )
-    plotted["fixed_minus_actual_pct"] = 100.0 * (plotted["fixed_weight_index"] / plotted["actual_index"] - 1.0)
-
-    x = plotted.index.to_timestamp() if isinstance(plotted.index, pd.PeriodIndex) else plotted.index
-    fig, ax = plt.subplots(figsize=(8.6, 4.8))
-    ax.plot(x, plotted["fixed_weight_index"], label=fixed_label, linewidth=2.0)
-    ax.plot(x, plotted["actual_index"], label=actual_label, linewidth=1.8, linestyle="--")
-    ax.set_title(title)
-    ax.set_ylabel(f"Index ({baseline:g} at baseline)")
-    ax.set_xlabel("Date")
-    ax.legend(frameon=False, loc="upper left")
-    ax.grid(axis="y", alpha=0.25)
-
-    fig.tight_layout()
-    path_base.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path_base.with_suffix(".png"), dpi=220)
-    fig.savefig(path_base.with_suffix(".pdf"))
-    plt.close(fig)
-    return plotted
 
 
 def plot_lpt_squared_bucket_sizes(

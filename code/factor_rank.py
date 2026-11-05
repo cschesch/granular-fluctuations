@@ -10,9 +10,7 @@ common factors. Consumed by ``check_factor_rank.py``; requires jax + jaxopt.
 
 from __future__ import annotations
 
-from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
@@ -328,7 +326,6 @@ def factor_rank_tests(
 
         jax.config.update("jax_enable_x64", True)
         import jax.numpy as jnp
-        import jaxopt
     except Exception as exc:  # pragma: no cover - environment dependent
         raise RuntimeError("factor_rank_tests requires jax and jaxopt in the active Python environment.") from exc
 

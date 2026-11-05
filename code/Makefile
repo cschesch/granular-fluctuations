@@ -31,13 +31,13 @@ syncdraft:
 	$(PYTHON) paper_outputs.py sync
 
 test:
-	$(PYTHON) test_core.py
-	$(PYTHON) test_gradient_bootstrap_checkpoint.py
+	$(PYTHON) -m tests.test_core
+	$(PYTHON) -m tests.test_gradient_bootstrap_checkpoint
 	$(PYTHON) -m applications.bls_cpi.check_cpi_sanity
-	$(PYTHON) test_campd_panel.py
-	$(PYTHON) test_tic_panel.py
-	$(PYTHON) test_debt_baselines.py
-	$(PYTHON) test_mc_new.py
-	$(PYTHON) test_grouped_giv.py
-	$(PYTHON) test_factor_rank_figure1_cache.py
-	$(PYTHON) test_atalay_elasticity_surface.py
+	$(PYTHON) -m tests.test_campd_panel
+	$(PYTHON) -m tests.test_tic_panel
+	$(PYTHON) -m tests.test_debt_baselines
+	$(PYTHON) -m tests.test_mc_new
+	$(PYTHON) -m tests.test_grouped_giv
+	$(PYTHON) -m tests.test_factor_rank_figure1_cache
+	$(PYTHON) -m tests.test_atalay_elasticity_surface

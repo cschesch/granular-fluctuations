@@ -4,8 +4,7 @@
 Stella's Stata code applies Census X-12 to log nominal ``revtq`` with automatic
 outlier selection and takes X-11 table D11, then deflates, log-differences,
 and demeans within firm. ``--seasonal-spec sax12`` translates its emitted
-estimation options literally; the archived ``automdl`` reconstruction is retained
-as a sensitivity. The dedicated WRDS extract supplies ``revtq`` directly.
+estimation options literally. The dedicated WRDS extract supplies ``revtq`` directly.
 The recovered original X-12 build is preferred when available; X-13 is a
 separately labelled engine alternative. Legacy saleq filenames are retained
 for downstream compatibility, without filling missing revenue from sales.
@@ -28,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from mgp_core import ROOT
-from run_multi_source import load_gdp_deflator
+from applications.panels import load_gdp_deflator
 from applications.stella.stella_provenance import archive_existing, file_fingerprints
 
 
@@ -36,7 +35,6 @@ CALIBRATION = ROOT / "code/.cache/firm_networks/stella_literal"
 DEFAULT_X13 = ROOT / "code/.cache/tools/x13binary/x13ashtml"
 DEFAULT_X12 = ROOT / "code/.cache/tools/x12a_v03/source/x12a"
 X12_BUILD_MANIFEST = ROOT / "code/.cache/tools/x12a_v03/build_manifest.json"
-DIAGNOSTICS = ROOT / "output/stella_sales_preparation_diagnostics.json"
 
 
 def locate_x13(explicit: Path | None = None) -> Path:
@@ -51,7 +49,7 @@ def locate_x13(explicit: Path | None = None) -> Path:
         manifest = json.loads(X12_BUILD_MANIFEST.read_text())
         if manifest.get("verified") and manifest.get("executable_sha256") == hashlib.sha256(DEFAULT_X12.read_bytes()).hexdigest():
             candidates.append(DEFAULT_X12)
-    candidates.extend([DEFAULT_X13, Path("/tmp/Rlib/x13binary/bin/x13ashtml")])
+    candidates.append(DEFAULT_X13)
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate.resolve()
@@ -136,18 +134,6 @@ def growth_from_levels(levels: pd.DataFrame, deflator: pd.Series) -> pd.DataFram
     return growth.sub(growth.mean(axis=0), axis=1)
 
 
-def deterministic_quarter_adjustment(levels: pd.DataFrame) -> pd.DataFrame:
-    log_levels = np.log(levels)
-    quarter = pd.Series(levels.columns.quarter, index=levels.columns)
-    overall = log_levels.mean(axis=1)
-    adjusted = log_levels.copy()
-    for q in range(1, 5):
-        columns = quarter.index[quarter.eq(q)]
-        seasonal = log_levels[columns].mean(axis=1) - overall
-        adjusted.loc[:, columns] = log_levels[columns].sub(seasonal, axis=0)
-    return np.exp(adjusted)
-
-
 def full_consecutive_spells(levels: pd.DataFrame) -> dict[str, tuple[pd.Period, np.ndarray]]:
     """Return each target firm's positive spell ending 2011Q4 and containing 1970Q1.
 
@@ -194,15 +180,13 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--calibration-dir", type=Path, default=CALIBRATION)
     parser.add_argument("--diagnostics-path", type=Path, default=None)
-    parser.add_argument("--seasonal-spec", choices=["automdl", "sax12"], default="sax12")
+    parser.add_argument("--seasonal-spec", choices=["sax12"], default="sax12")
     args = parser.parse_args()
     executable = locate_x13(args.x13)
     engine = "X-12" if "x12" in executable.name.lower() else "X-13"
     calibration = args.calibration_dir
-    variant = "x13" if args.seasonal_spec == "automdl" else "sax12"
-    diagnostics_path = args.diagnostics_path or (
-        DIAGNOSTICS if calibration.resolve() == CALIBRATION.resolve() and variant == "x13"
-        else calibration / f"sales_preparation_{variant}_diagnostics.json")
+    variant = "sax12"
+    diagnostics_path = args.diagnostics_path or calibration / "sales_preparation_sax12_diagnostics.json"
 
     levels = pd.read_csv(calibration / "nominal_saleq_levels.csv", index_col=0)
     levels.index = levels.index.astype(str).str.zfill(6)
@@ -235,60 +219,21 @@ def main() -> None:
     if errors:
         raise RuntimeError(f"X-13 failed for {len(errors)} firms: {errors}")
 
-    # Endpoint sensitivity: repeat the same X-13 specification after cropping
-    # every series to 1970Q1.  This is not the baseline; it quantifies why the
-    # released order (adjust full history, then crop) matters.
-    short_adjusted = pd.DataFrame(index=levels.index, columns=levels.columns, dtype=float)
-    short_errors: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {
-            pool.submit(
-                adjust_one,
-                gvkey,
-                levels.loc[gvkey].to_numpy(float),
-                pd.Period("1970Q1", freq="Q"),
-                executable,
-                firm_spec(gvkey),
-            ): gvkey
-            for gvkey in levels.index
-        }
-        for future in as_completed(futures):
-            gvkey = futures[future]
-            try:
-                _, values, _ = future.result()
-                short_adjusted.loc[gvkey] = values
-            except Exception as exc:
-                short_errors[gvkey] = str(exc)
-    if short_errors:
-        raise RuntimeError(f"Short-window X-13 sensitivity failed for {len(short_errors)} firms: {short_errors}")
-
-    for previous in calibration.glob("*.csv"):
-        if previous.name.startswith(("sales_growth_", "nominal_saleq_")) and previous.name != "nominal_saleq_levels.csv":
-            archive_existing(previous)
+    for name in ("sales_growth_sax12.csv", "nominal_saleq_sax12_adjusted.csv"):
+        archive_existing(calibration / name)
     archive_existing(diagnostics_path)
 
     deflator = load_gdp_deflator("quarterly").reindex(levels.columns)
     if deflator.isna().any():
         raise ValueError("GDP deflator does not cover 1970Q1--2011Q4.")
     x13_growth = growth_from_levels(adjusted, deflator)
-    short_growth = growth_from_levels(short_adjusted, deflator)
-    raw_growth = growth_from_levels(levels, deflator)
-    quarter_growth = growth_from_levels(deterministic_quarter_adjustment(levels), deflator)
     x13_growth.to_csv(calibration / f"sales_growth_{variant}.csv")
-    raw_growth.to_csv(calibration / "sales_growth_raw.csv")
-    quarter_growth.to_csv(calibration / "sales_growth_quarter_dummy.csv")
     adjusted.to_csv(calibration / f"nominal_saleq_{variant}_adjusted.csv")
-    short_growth.to_csv(calibration / f"sales_growth_{variant}_1970_window.csv")
-    short_adjusted.to_csv(calibration / f"nominal_saleq_{variant}_adjusted_1970_window.csv")
 
-    aggregate_raw = raw_growth.mean(axis=1)
-    aggregate_x13 = x13_growth.mean(axis=1)
     prequarters = {
         gvkey: pd.Period("1970Q1", freq="Q").ordinal - start.ordinal
         for gvkey, (start, _) in spells.items()
     }
-    short_corr = float(x13_growth.mean(axis=1).corr(short_growth.mean(axis=1)))
-    short_rms = float(np.sqrt(np.mean((x13_growth - short_growth).to_numpy() ** 2)))
     payload = {
         "input_variable_in_paper": "Compustat quarterly revtq",
         "calibration_directory": str(calibration),
@@ -297,16 +242,13 @@ def main() -> None:
         "paper_seasonal_adjustment": "Stata sax12: log transform, outauto(all), outmethod(addone), no explicit ARIMA model or automdl, X-11 seasonalma=msr and D11; sax12.ado 2012-03-14",
         "seasonal_specification": args.seasonal_spec,
         "literal_tid549_current_gvkey": no_outlier_gvkey,
-        "reconstruction_seasonal_adjustment": (
-            f"Published sax12 estimation options translated literally to Census {engine}: log; outlier types=all method=addone; no automdl; forecast maxlead=12 maxback=0 probability=.95; estimate{{}}; X-11 seasonalma=msr and D11. Diagnostic-only sliding-span/history requests omitted."
-            if variant == "sax12" else "Archived reconstruction with current Census X-13: log, outlier{}, automdl maxorder=(2 1) maxdiff=(2 1), and X-11 D11; this differs from Stella's emitted sax12 specification."),
+        "reconstruction_seasonal_adjustment": f"Published sax12 estimation options translated literally to Census {engine}: log; outlier types=all method=addone; no automdl; forecast maxlead=12 maxback=0 probability=.95; estimate{{}}; X-11 seasonalma=msr and D11. Diagnostic-only sliding-span/history requests omitted.",
         "x13_executable": str(executable),
         "seasonal_adjustment_engine": engine,
         "seasonal_adjustment_executable": str(executable),
         "x13_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "input_file_fingerprints": file_fingerprints([QFILE, executable, calibration / "nominal_saleq_levels.csv"], ROOT),
         "x13_failures": errors,
-        "short_window_x13_failures": short_errors,
         "N": int(levels.shape[0]),
         "variant": variant,
         "nominal_level_T": int(levels.shape[1]),
@@ -317,14 +259,6 @@ def main() -> None:
         "pre_1970_quarters_median": float(np.median(list(prequarters.values()))),
         "pre_1970_quarters_min": int(min(prequarters.values())),
         "pre_1970_quarters_max": int(max(prequarters.values())),
-        "correlation_full_history_vs_1970_window_x13_aggregate": short_corr,
-        "rms_firm_growth_difference_full_history_vs_1970_window_x13": short_rms,
-        "correlation_equal_weight_aggregate_x13_raw": float(aggregate_x13.corr(aggregate_raw)),
-        "rms_firm_growth_difference_x13_raw": float(np.sqrt(np.mean((x13_growth - raw_growth).to_numpy() ** 2))),
-        "sensitivity_files": [
-            str(calibration / "sales_growth_raw.csv"),
-            str(calibration / "sales_growth_quarter_dummy.csv"),
-        ],
     }
     diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
     diagnostics_path.write_text(json.dumps(payload, indent=2) + "\n")

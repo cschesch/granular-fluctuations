@@ -46,7 +46,7 @@ import pandas as pd
 # Import mgp_core before cvxpy: it sets MOSEKLM_LICENSE_FILE, which the MOSEK C
 # library reads once when cvxpy/mosek first initializes at import.
 from mgp_core import (
-    sample_cov, mgp_share, solve_grouped_mgp_dual, solve_primal_mtfa,
+    sample_cov, solve_grouped_mgp_dual, solve_primal_mtfa,
     numerical_rank, moving_block_indices, installed_solvers, ledermann_bound,
     atomic_write_pickle,
 )
@@ -137,63 +137,10 @@ class ShareDirectionalDerivative:
         return float(self.shares(np.asarray(hmat, dtype=float)[None])[0])
 
 
-def face_mean_bias(sigma: np.ndarray, t: int, n_draws: int, solver: str,
-                   rng: np.random.Generator) -> dict:
-    """O(1/sqrt T) bias in the NON-regular case, via the fixed min-over-face derivative.
-
-    In the non-regular case sqrt(T)(g_hat - g) => W = g'(Sigma; Z), Z ~ N(0, Avar),
-    and W = min over the dual optimal set is a minimum of correlated Gaussians with E[W] < 0,
-    so the leading bias is E[g_hat - g] ~ E[W]/sqrt(T) -- an O(1/sqrt T) term the
-    Shapiro Hessian (an O(1/T) object) cannot supply. We estimate E[W] by pushing
-    Gaussian covariance shocks through the SAME fixed directional derivative used by the
-    gradient bootstrap (min over the estimated near-optimal set), NOT by recomputing the nonsmooth
-    Gamma_bar on each draw -- the latter is the ordinary parametric bootstrap, which is
-    inconsistent here (Fang--Santos Cor. 3.1), whereas the fixed-derivative average is
-    consistent (their Thm. 3.2).
-
-    Because the near-optimal set contains the dual optimizer set, min over it is a lower
-    bound on the true derivative, so this returns a CONSERVATIVE (most negative) estimate
-    of E[W]: it is exactly 0 only where the near-optimal set collapses to a singleton.
-    It is the same derivative the reported confidence intervals invert, which is the
-    point -- the bias estimate and the interval make the same admission about not knowing
-    the regime. In the regular case the O(1/T) Hessian bias is the sharper object.
-    """
-    dd = ShareDirectionalDerivative(sigma, solver, t)
-    m = sigma.shape[0]
-    w, v = np.linalg.eigh(0.5 * (sigma + sigma.T))
-    half = v @ np.diag(np.sqrt(np.clip(w, 0.0, None))) @ v.T
-    z = rng.standard_normal((n_draws, t, m)) @ half
-    z -= z.mean(axis=1, keepdims=True)
-    draws = np.matmul(np.swapaxes(z, -1, -2), z) / (t - 1)
-    vals = dd.shares(np.sqrt(t) * (draws - sigma))
-    rt = np.sqrt(t)
-    return {
-        "bias": float(np.mean(vals)) / rt,
-        "se": float(np.std(vals, ddof=1)) / np.sqrt(n_draws) / rt,
-        "regular": dd.regular,
-        "common_rank": dd.r,
-        "face_solves": dd._face_solves,
-        "face_fallbacks": dd._face_fallbacks,
-        "delta_T": dd.delta,
-    }
-
-
 def _share_from_cov(sigma: np.ndarray, solver: str) -> float:
     mgp = solve_grouped_mgp_dual(sigma, solver)
     one = np.ones(sigma.shape[0])
     return float(mgp["value"] / (one @ sigma @ one))
-
-
-def _draw_pass(x, idx_list, sig_hat, dd: "ShareDirectionalDerivative", solver):
-    """For each draw: plain share g(Sigma*) and gradient stat D = g'(Sigma_hat; sqrt(T)(Sigma*-Sigma_hat))."""
-    t = x.shape[0]
-    g = np.empty(len(idx_list))
-    d = np.empty(len(idx_list))
-    for b, idx in enumerate(idx_list):
-        sig_b = sample_cov(x[idx])
-        g[b] = _share_from_cov(sig_b, solver)
-        d[b] = dd.share(np.sqrt(t) * (sig_b - sig_hat))
-    return g, d
 
 
 def _ci(g_hat, d, t, lo=0.05, hi=0.95):

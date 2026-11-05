@@ -32,7 +32,6 @@ from factor_rank import factor_rank_tests
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
-    rule_m,
     OUTPUT_DIR,
     ROOT,
     RUN_OUTPUT_CACHE,

@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from project_paths import CODE_DIR, DERIVED_CACHE, ROOT, available, upstream
+from project_paths import CODE_DIR, DERIVED_CACHE, ROOT, available
 from wrds_inputs import wrds_path
 
 
@@ -17,7 +17,6 @@ OUT = ROOT / "output"
 CACHE = CODE_DIR / ".cache/run_outputs"
 STELLA = ".cache/firm_networks/stella_revtq"
 STELLA_DATA = DATA / "stella2015"
-OFFICIAL_STELLA = upstream("stella2015")
 STELLA_PUBLIC = STELLA_DATA / "public_inputs"
 ALIASES = DATA / "compustat/welburn_customer_aliases.csv"
 GDPDEF = DATA / "fred/GDPDEF.csv"
@@ -27,7 +26,7 @@ QUARTERLY = wrds_path("compustat_quarterly_sales")
 CUSTOMERS = wrds_path("compustat_customers")
 CPI = DATA / "bls_cpi"
 RI = CPI / "relative_importance_raw"
-FRENCH = DATA / "additional_applications/raw/french_country_returns"
+FRENCH = DATA / "french"
 FOERSTER = DERIVED_CACHE / "foerster2011/exports"
 FOERSTER_MODEL_INPUTS = DERIVED_CACHE / "foerster2011/model_inputs"
 BEA = DATA / "bea_klems"
@@ -94,11 +93,11 @@ APPLICATIONS = (
         prepared=tuple(DERIVED_CACHE / "bls_cpi/panels" / name for name in (
             "cpi_1967_leaves.csv", "cpi_1967_inflation.parquet",
         ))),
-    Analysis("Country equity preparation", (("applications.additional.prepare_french_country_panel",),), (
+    Analysis("Country equity preparation", (("applications.french.prepare",),), (
         FRENCH / "F-F_International_Countries.zip",
         FRENCH / "F-F_Research_Data_Factors_CSV.zip",
         FRENCH / "world_bank_CM.MKT.LCAP.CD_20_markets_1960_2025.json",
-    ), prepared=tuple(DERIVED_CACHE / "additional_applications" / name for name in (
+    ), prepared=tuple(DERIVED_CACHE / "french" / name for name in (
         "french_country_market_returns_monthly_1975_2025.csv", "world_bank_country_market_cap_weights_1975.csv",
     ))),
     Analysis("Quarterly Compustat", (("applications.compustat.run_compustat_quarterly", "--run-profile", "full"),),
@@ -109,7 +108,7 @@ APPLICATIONS = (
             "monthly_assets", "monthly_returns", "daily_returns", "headers", "portfolio_map",
         )), summaries=("mutual_fund_applications_summary.pkl",)),
     Analysis("Innovation", (("applications.innovation.run_innovation_applications",),)),
-    Analysis("Additional applications", (("applications.additional.run_additional_applications",),)),
+    Analysis("Other application panels", (("applications.run_panels",),)),
     Analysis("Elections", (("applications.elections.run_election_applications",),),
              (DATA / "elections/algara_amlani_presidential_county_1868_2020.csv",),
              summaries=("election_applications_summary.pkl",)),
@@ -185,7 +184,7 @@ APPLICATIONS = (
         )),
         DERIVED_CACHE / "stella/bls_sectoral_employment.csv",
         DERIVED_CACHE / "stella/deposited_real_gdp_growth.csv",
-        *(OFFICIAL_STELLA / "filtering/data" / name for name in ("matrix_io_input.csv", "valadd_IIcalibration.csv")),
+        STELLA_DATA / "source.zip",
         *(FOERSTER_MODEL_INPUTS / f"{stem}.csv" for stem in ("matrix_io", "alpha", "matrix_capital")),
         *(FOERSTER / f"{stem}_98_benchmark.csv" for stem in ("pii_a", "xi", "cap_rho")),
     ),
@@ -248,7 +247,8 @@ def main() -> None:
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args()
     sections = SECTIONS if args.section == "all" else (args.section,)
-    OUT.mkdir(exist_ok=True)
+    if not args.plan:
+        OUT.mkdir(exist_ok=True)
     for section in sections:
         for analysis in SECTIONS[section]:
             print(f"[{section}] {analysis.name}", flush=True)

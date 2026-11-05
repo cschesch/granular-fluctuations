@@ -7,30 +7,25 @@ kernel and ranges of several deterministic linear dual objectives under
 shrinking optimality caps. It never changes the estimator or bootstrap.
 """
 from __future__ import annotations
-import argparse
-import json
-from pathlib import Path
 import numpy as np
-from mgp_core import lpt_buckets
 import cvxpy as cp
 
 OPTIONS=dict(solver='CLARABEL',tol_gap_abs=1e-10,tol_feas=1e-10,tol_gap_rel=1e-10,max_iter=1000)
 
 
-def grouped_covariance(n=1000,m=10,r=3,zeta=1.,seed=20260901,idio='lognormal',idio_sd=.5,gamma_target=.03):
-    """Same population-generation RNG and scaling as inference_mc._build_population."""
-    rng=np.random.default_rng(seed)
-    s=np.arange(1,n+1,dtype=float)**(-zeta);s/=s.sum()
-    variance=np.ones(n) if idio=='homoskedastic' else np.exp(idio_sd*rng.standard_normal(n))
-    variance/=variance.mean()
-    raw=rng.standard_normal((n,r))
-    sigma_lambda2=float(np.sum(s*s*variance)*(1-gamma_target)/(gamma_target*np.sum((s@raw)**2)))
-    groups,_=lpt_buckets(s*s,m)
-    g=np.zeros((m,n))
-    for k,group in enumerate(groups):g[k,group]=s[group]
-    loading=np.sqrt(sigma_lambda2)*(g@raw)
-    sigma=loading@loading.T+np.diag((g*g)@variance)
-    return sigma
+def primal(sigma,solver):
+    m=len(sigma)
+    d=cp.Variable(m,nonneg=True)
+    problem=cp.Problem(cp.Maximize(cp.sum(d)),[sigma-cp.diag(d)>>0])
+    if solver=='CLARABEL':
+        options=dict(tol_gap_abs=1e-11,tol_feas=1e-11,tol_gap_rel=1e-11,max_iter=1000)
+    else:
+        options=dict(mosek_params={'MSK_DPAR_INTPNT_CO_TOL_PFEAS':1e-10,
+                                  'MSK_DPAR_INTPNT_CO_TOL_DFEAS':1e-10,
+                                  'MSK_DPAR_INTPNT_CO_TOL_REL_GAP':1e-10})
+    problem.solve(solver=solver,**options)
+    assert problem.status in ('optimal','optimal_inaccurate'),problem.status
+    return float(problem.value),np.asarray(d.value),problem.status
 
 
 def audit_covariance(sigma,probes=3,cap_tolerances=(1e-5,1e-7,1e-9)):
@@ -96,22 +91,3 @@ def audit_covariance(sigma,probes=3,cap_tolerances=(1e-5,1e-7,1e-9)):
                 diagonal_system_injective=rank==columns,cap_tolerances=list(cap_tolerances),
                 probe_widths=widths.tolist(),last_width_contraction=contraction,
                 inaccurate_solves=statuses.count('optimal_inaccurate'))
-
-
-def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--seed',type=int,default=20260901)
-    parser.add_argument('--r',type=int,nargs='+',default=[3,5,6])
-    parser.add_argument('--zeta',type=float,default=1.)
-    parser.add_argument('--output',type=Path)
-    args=parser.parse_args()
-    results=[]
-    for r in args.r:
-        result=dict(seed=args.seed,r=r,zeta=args.zeta,**audit_covariance(grouped_covariance(r=r,zeta=args.zeta,seed=args.seed)))
-        results.append(result)
-        print(json.dumps(result),flush=True)
-    if args.output:
-        args.output.parent.mkdir(parents=True,exist_ok=True)
-        args.output.write_text(json.dumps(results,indent=2)+'\n')
-
-if __name__=='__main__':main()

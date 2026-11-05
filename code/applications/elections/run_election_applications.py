@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from mgp_core import ANALYSIS_BOOTSTRAP_DRAWS, ROOT, choose_solver
-from applications.additional.common import Application, estimate
+from applications.common import Application, estimate
 
 
 DATA = ROOT / "data/elections/algara_amlani_presidential_county_1868_2020.csv"
@@ -69,7 +69,7 @@ def main() -> None:
     solver = choose_solver("auto")
     rows = []
     for app, _ in (state_application(d), county_application(d)):
-        row, _ = estimate(app, solver, bootstrap_b=ANALYSIS_BOOTSTRAP_DRAWS, seed=20260908)
+        row = estimate(app, solver, bootstrap_b=ANALYSIS_BOOTSTRAP_DRAWS, seed=20260908)
         rows.append(row)
         print(f"{app.entity}: N={row['N']}, T={row['T']}, M={row['M']}, "
               f"HHI={row['HHI']:.5f}, ceiling={row['MGP_share']:.4f}, "

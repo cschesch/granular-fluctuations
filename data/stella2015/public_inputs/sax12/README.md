@@ -25,8 +25,8 @@ options and the absence of an explicit ARIMA or automatic-model block. Its
 absolute original file path is replaced with the local synthetic fixture path
 when running the test.
 
-`code/prepare_stella_sales.py --seasonal-spec sax12` translates these estimation
-options to current Census X-13 and saves `sales_growth_sax12.csv`. Sliding-span
+`python -m applications.stella.prepare_stella_sales`, run from `code/`, translates these estimation
+options to the recovered Census X-12 engine and saves `sales_growth_sax12.csv`. Sliding-span
 and revision-history diagnostics are omitted from production runs. The numerical
 test in `code/test_stella_preprocessing.py` confirms that the production
 translation and the original Stata-emitted specification give identical D11

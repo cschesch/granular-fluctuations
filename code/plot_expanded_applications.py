@@ -65,7 +65,7 @@ def tick_labels(positions):
 
 
 def additional_loaders():
-    from applications.additional import run_additional_applications as add
+    from applications import run_panels as add
 
     return {
         "GDP (PPP) by country": add.load_countries,

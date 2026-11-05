@@ -194,39 +194,6 @@ def share_bias_from_value_hessian(h_gamma: np.ndarray, sigma: np.ndarray,
     return contr_share / (2.0 * t)
 
 
-def mgp_share_value(sigma: np.ndarray, solver: str) -> float:
-    ystar = dual_optimizer(sigma, solver)
-    one = np.ones(sigma.shape[0])
-    return float(np.sum(ystar * sigma) / (one @ sigma @ one))
-
-
-def parametric_gaussian_bias(sigma: np.ndarray, t: int, b: int, solver: str,
-                             rng: np.random.Generator) -> tuple[float, float]:
-    """Cross-check: mean of share over Gaussian resamples minus the plug-in (+ MC se)."""
-    sigma = 0.5 * (sigma + sigma.T)
-    m = sigma.shape[0]
-    plug = mgp_share_value(sigma, solver)
-    vals = [mgp_share_value(np.cov(rng.multivariate_normal(np.zeros(m), sigma, size=t),
-                                   rowvar=False, ddof=1), solver) for _ in range(b)]
-    return float(np.mean(vals) - plug), float(np.std(vals, ddof=1) / np.sqrt(b))
-
-
-def bias_all_methods(sigma: np.ndarray, t: int, solver: str, fd_h: float = 1e-4) -> dict:
-    sigma = 0.5 * (sigma + sigma.T)
-    basis = sym_basis(sigma.shape[0])
-    h = fd_h * np.linalg.norm(sigma)
-
-    hg_fd = operator_to_value_hessian([dYstar_fd(sigma, e, solver, h) for e in basis], basis)
-    hg_ad = operator_to_value_hessian(dYstar_ad_all(sigma, basis), basis)
-    hg_cf = closed_value_hessian(sigma, basis, solver)
-
-    return {
-        "bias_closed": share_bias_from_value_hessian(hg_cf, sigma, basis, t, solver),
-        "bias_fd": share_bias_from_value_hessian(hg_fd, sigma, basis, t, solver),
-        "bias_ad": share_bias_from_value_hessian(hg_ad, sigma, basis, t, solver),
-    }
-
-
 def closed_form_diagnostics(sigma: np.ndarray, solver: str, rel_tol: float = 1e-3) -> dict[str, object]:
     m = sigma.shape[0]
     sigma_eig = np.linalg.eigvalsh(0.5 * (sigma + sigma.T))[::-1]

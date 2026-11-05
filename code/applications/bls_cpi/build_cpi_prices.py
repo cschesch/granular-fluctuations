@@ -21,7 +21,6 @@ on each branch that still has history past the cutoff.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pandas as pd
 

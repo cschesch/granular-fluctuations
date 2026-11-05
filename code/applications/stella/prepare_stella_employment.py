@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
@@ -164,7 +163,7 @@ def build_sectoral() -> tuple[pd.DataFrame, dict]:
         body = json.loads(path.read_text())
         rail_rows.extend(body["Results"]["series"][0]["data"])
     if not rail_rows:
-        raise FileNotFoundError("Run fetch_stella_public_inputs.py to obtain the CES railroad supplement; QCEW railroad counts exclude most employees")
+        raise FileNotFoundError("Missing bundled BLS CES railroad supplement; QCEW railroad counts exclude most employees")
     rail = pd.DataFrame(rail_rows)
     rail = rail.loc[rail.period.isin([f"M{m:02d}" for m in range(1, 13)])].copy()
     rail["year"] = rail.year.astype(int)

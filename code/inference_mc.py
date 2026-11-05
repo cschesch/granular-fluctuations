@@ -34,8 +34,8 @@ Gaussianizes the fringe buckets while singleton buckets keep the raw tail -- whi
 is itself the interesting case.
 
 All SDPs go through ``fast_mgp``: a replication's whole bootstrap is one batched
-interior-point solve. ``run_inference_mc.py`` drives the designs, writes the
-tables and figures, and ``test_inference_mc.py`` checks this module against
+interior-point solve. ``run_mc_new.py`` drives the designs, ``plot_mc_new.py`` writes
+the exhibits, and ``test_inference_mc.py`` checks this module against
 ``mgp_core``/``gradient_bootstrap``.
 """
 
@@ -44,7 +44,6 @@ from __future__ import annotations
 import pickle
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import numpy as np
 
@@ -62,12 +61,8 @@ from near_optimal import delta_rate, near_optimal_derivative
 from mosek_face import licensed_mosek
 from fast_mgp import (
     common_rank,
-    directional_derivative_batch,
-    face_is_bounded,
     firm_level_mgp,
     mgp_batch,
-    null_basis,
-    solve_batch,
 )
 
 RANK_REL_TOL = 1e-3          # matches mgp_core.numerical_rank / regularity_report
@@ -626,18 +621,10 @@ def cov_from_windows(prefix, starts: np.ndarray, lengths: np.ndarray, m: int) ->
 def heywood_mask(nu: np.ndarray, rel_tol: float = RANK_REL_TOL) -> np.ndarray:
     """Buckets whose recovered idiosyncratic variance is zero at the optimum.
 
-    Same relative rule as ``gradient_bootstrap.ShareDirectionalDerivative._d_active``:
-    the dual only needs ``Y_ii >= 1`` there, so the corresponding multiplier is sign
-    constrained rather than free.
+    The dual only needs ``Y_ii >= 1`` there, so the corresponding multiplier is
+    sign constrained rather than free.
     """
     return nu <= rel_tol * np.maximum(nu.max(axis=-1, keepdims=True), 1e-12)
-
-
-def _block_indices(t: int, b: int, block_length: int, rng: np.random.Generator) -> np.ndarray:
-    """(b,T) moving-block indices, as in ``mgp_core.moving_block_indices``. Reference path."""
-    starts, _ = _block_runs(t, b, block_length, rng)
-    idx = starts[:, :, None] + np.arange(block_length)[None, None, :]
-    return idx.reshape(b, -1)[:, :t]
 
 
 def _block_runs(t: int, b: int, block_length: int, rng: np.random.Generator):

@@ -12,3 +12,8 @@ employment denominators and the author's deposited GDP vector under
 The full reconstruction also needs the local Compustat WRDS revenue, annual and
 customer extracts and the reviewed firm/sector and customer-name maps. The paper
 runner leaves Stella's estimates blank when these licensed inputs are absent.
+
+For the licensed reconstruction, build the bundled X-12 seasonal-adjustment
+engine once with `python -m applications.stella.build_stella_x12` from `code/`
+(requires GNU Fortran), or set `X12PATH` to an existing executable. Public-input
+sources and conventions are described in `public_inputs/README.md`.

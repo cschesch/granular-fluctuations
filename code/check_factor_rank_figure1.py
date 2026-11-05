@@ -19,12 +19,11 @@ import argparse
 import hashlib
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from factor_rank import factor_rank_ledermann, factor_rank_tests, j_test_reportable
+from factor_rank import factor_rank_tests, j_test_reportable
 from mgp_core import ROOT, RUN_OUTPUT_CACHE, align_sizes_to_panel, build_lpt_grouped_data, lpt_buckets
 from plot_expanded_applications import HIERARCHY, additional_loaders, available_items, innovation_loaders
 
@@ -97,7 +96,11 @@ def _wanted(selected: set[str], *names: str) -> bool:
 
 def core_panels(selected: set[str] | None = None, available: set[str] | None = None) -> list[Panel]:
     from applications.compustat import run_compustat_quarterly as quarterly
-    import run_multi_source as multi
+    from applications.bls_ces.panel import load_bls_ces_panel
+    from applications.bls_cpi.panel import load_bls_cpi_panel
+    from applications.compustat.panel import load_compustat_annual_panel, load_compustat_quarterly_tfp_panel
+    from applications.crsp.panel import load_crsp_panel
+    from applications.forbes.panel import FORBES_ARCHIVE_DAILY, load_forbes_billionaire_panels
 
     selected = set(selected or [])
     panels: list[Panel] = []
@@ -117,13 +120,13 @@ def core_panels(selected: set[str] | None = None, available: set[str] | None = N
         x, *_ = build_lpt_grouped_data(y - y.mean(), sizes / sizes.sum(), 10)
         panels.append(Panel("Firms", "Sales", "compustat_quarterly_sales", x, y.shape[0]))
     if wanted("compustat_annual_employment", "Employment"):
-        annual_emp = multi.load_compustat_annual_panel("emp", 50, True, False)
+        annual_emp = load_compustat_annual_panel("emp", 50, True, False)
         panels.append(grouped_application("Firms", "Employment", "compustat_annual_employment", annual_emp))
     if wanted("compustat_quarterly_tfp", "Productivity"):
-        qtfp = multi.load_compustat_quarterly_tfp_panel(100, ANALYSIS_LAST_QUARTER, True, False)
+        qtfp = load_compustat_quarterly_tfp_panel(100, ANALYSIS_LAST_QUARTER, True, False)
         panels.append(grouped_application("Firms", "Productivity", "compustat_quarterly_tfp", qtfp))
     if wanted("crsp_daily_returns_rank", "Stocks"):
-        crsp = multi.load_crsp_panel(20 * 252, True, False)
+        crsp = load_crsp_panel(20 * 252, True, False)
         panels.append(grouped_application("Returns", "Stocks", "crsp_daily_returns_rank_M10", crsp))
 
     use_returns = wanted("mutual_fund_returns", "Mutual funds")
@@ -137,16 +140,16 @@ def core_panels(selected: set[str] | None = None, available: set[str] | None = N
             panels.append(grouped_application("Financial flows", "Mutual fund flows", flow_app.entity, flow_app))
 
     if wanted("forbes_full", "Forbes Billionaires"):
-        forbes = multi.load_forbes_billionaire_panels(None, multi.FORBES_ARCHIVE_DAILY, True, False)
+        forbes = load_forbes_billionaire_panels(None, FORBES_ARCHIVE_DAILY, True, False)
         full = next(panel for panel in forbes if panel.name == "forbes_billionaire_wealth_daily_full")
         forbes_panel = grouped_application("Returns", "Forbes Billionaires", "forbes_full", full)
         forbes_panel.dataset = f"forbes_full_M{forbes_panel.m}"
         panels.append(forbes_panel)
     if wanted("bls_ces", "Employment by sector"):
-        bls = multi.load_bls_ces_panel(True, False)
+        bls = load_bls_ces_panel(True, False)
         panels.append(grouped_application("Prices and labor", "Employment by sector", "bls_ces", bls))
     if wanted("cpi1967", "Price by item"):
-        cpi = multi.load_bls_cpi_panel(True, False)
+        cpi = load_bls_cpi_panel(True, False)
         cpi_panel = grouped_application("Prices and labor", "Price by item", "cpi1967", cpi)
         cpi_panel.dataset = f"cpi1967_M{cpi_panel.m}"
         panels.append(cpi_panel)

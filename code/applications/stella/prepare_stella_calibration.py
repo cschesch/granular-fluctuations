@@ -31,7 +31,7 @@ import pandas as pd
 
 from mgp_core import ROOT
 from project_paths import upstream
-from applications.stella.stella_provenance import archive_existing, file_fingerprints, verify_fingerprints
+from applications.stella.stella_provenance import archive_existing, file_fingerprints
 
 
 PUBLIC = ROOT / "data/stella2015/public_inputs"

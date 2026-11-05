@@ -12,7 +12,6 @@ import argparse
 import hashlib
 import json
 import platform
-from pathlib import Path
 import shutil
 import subprocess
 import tarfile

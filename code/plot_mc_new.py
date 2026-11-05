@@ -9,16 +9,13 @@ import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from mgp_core import OUTPUT_DIR as _OUTPUT_DIR  # Configure writable plotting caches first.
+from mgp_core import OUTPUT_DIR as OUT, RUN_OUTPUT_CACHE as CACHE
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 from scipy.stats import norm
 
-ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'output'
-CACHE=ROOT/'code'/'.cache'/'run_outputs'
 METHODS=('normal','bootstrap','gradient_bootstrap','subsampling')
 LABELS={'normal':'Normal','bootstrap':'Naive bootstrap',
         'gradient_bootstrap':'Directional bootstrap','subsampling':'Subsampling'}

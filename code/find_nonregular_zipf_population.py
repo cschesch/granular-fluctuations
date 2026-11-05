@@ -12,8 +12,7 @@ import json
 import numpy as np
 from scipy.linalg import null_space
 from mgp_core import RUN_OUTPUT_CACHE,lpt_buckets
-from check_zipf_regularity import primal
-from mc_regularity_audit import audit_covariance
+from mc_regularity_audit import audit_covariance, primal
 from mosek_face import licensed_mosek
 import cvxpy as cp
 

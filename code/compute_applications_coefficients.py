@@ -117,7 +117,7 @@ def primitive_naive(prefix, summary):
             exposure_squared *= scale
             denominator *= scale
     elif prefix.startswith('atalay'):
-        path = ROOT / 'data/atalay2017/derived/atalay_benchmark_productivity_shocks.csv'
+        path = DERIVED_CACHE / 'atalay2017/atalay_benchmark_productivity_shocks.csv'
         d = pd.read_csv(path)
         x = d.filter(regex='^shock_').T.to_numpy(float)
         v = pd.read_csv(path.with_name('atalay_benchmark_network_variance_matrix.csv'), header=None).to_numpy(float)

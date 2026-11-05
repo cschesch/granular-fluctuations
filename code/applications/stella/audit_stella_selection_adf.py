@@ -34,7 +34,7 @@ from applications.stella.prepare_stella_calibration import (
     released_screen_panel,
 )
 from applications.stella.prepare_stella_sales import adjust_one, locate_x13
-from run_multi_source import load_gdp_deflator
+from applications.panels import load_gdp_deflator
 from applications.stella.stella_provenance import archive_existing, file_fingerprints
 from applications.stella.stella_quarterly_inputs import REVENUE_FIELD, input_description
 

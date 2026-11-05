@@ -18,7 +18,6 @@ from factor_rank import factor_rank_tests
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
-    rule_m,
     OUTPUT_DIR,
     ROOT,
     RUN_OUTPUT_CACHE,
@@ -39,7 +38,8 @@ from applications.foerster.run_foerster_epsilon import (
     resample_network_mgp,
     subsample_network_mgp,
 )
-from run_multi_source import SourcePanel, lpt_diagnostics, output_prefix
+from applications.panels import SourcePanel
+from run_multi_source import lpt_diagnostics, output_prefix
 
 
 DERIVED = ROOT / "code/.cache/derived/atalay2017"

@@ -14,8 +14,6 @@ import bias as B
 from mgp_core import (
     ANALYSIS_BOOTSTRAP_DRAWS,
     analysis_block_length,
-    rule_m,
-    ROOT,
     OUTPUT_DIR,
     RUN_OUTPUT_CACHE,
     Z95,
@@ -34,7 +32,8 @@ from mgp_core import (
 )
 from factor_rank import factor_rank_tests
 from near_optimal import delta_rate, near_optimal_derivative
-from run_multi_source import SourcePanel, lpt_diagnostics, output_prefix
+from applications.panels import SourcePanel
+from run_multi_source import lpt_diagnostics, output_prefix
 
 
 from .prepare import EXPORTS as FOERSTER_OUT

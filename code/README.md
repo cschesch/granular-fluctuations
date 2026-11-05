@@ -9,5 +9,11 @@ Missing source data leave blank estimates and are logged as skipped. Intermediat
 data and resumable checkpoints live under `.cache/`. Source-specific analyses
 live in `applications/`, with shared estimators and exhibit builders in `code/`.
 
+Each application folder contains its source-specific loader or analysis.
+`applications/common.py` holds shared panel and estimation routines; `tests/`
+contains the checks. Raw inputs live in the corresponding `../data/` source
+folders. Original publication packages stay intact; preprocessing writes only
+to `.cache/`.
+
 Run `make syncdraft` from the complete research checkout to refresh Overleaf's
 exhibits.

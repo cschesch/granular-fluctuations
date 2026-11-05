@@ -20,7 +20,7 @@ from scipy.special import logit
 
 from mgp_core import ROOT, build_lpt_grouped_data
 from applications.compustat.run_compustat_quarterly import load_compustat_panel
-from run_multi_source import load_gdp_deflator
+from applications.panels import load_gdp_deflator
 import welburn_population_logit
 from wrds_inputs import ANALYSIS_LAST_QUARTER, wrds_path
 

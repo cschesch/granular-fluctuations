@@ -18,7 +18,7 @@ from mgp_core import (
     fill_short_internal_return_gaps,
     read_clean_panel_cache, write_clean_panel_cache,
 )
-from applications.additional.common import Application, estimate
+from applications.common import Application, estimate
 from wrds_inputs import wrds_path
 
 CACHE = ROOT / "code/.cache/run_outputs"
@@ -336,7 +336,7 @@ def main() -> None:
     apps = portfolio_applications(p["returns"], p["flows"], p["return_sizes"], p["flow_sizes"])
     rows = []
     for app, diagnostics in zip(apps, (p["return_diagnostics"], p["flow_diagnostics"]), strict=True):
-        row, _ = estimate(app, choose_solver("auto"), args.bootstrap_b, 20260907)
+        row = estimate(app, choose_solver("auto"), args.bootstrap_b, 20260907)
         row.update(diagnostics)
         rows.append(row)
     out = pd.DataFrame(rows)
