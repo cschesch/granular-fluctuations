@@ -22,9 +22,17 @@ Peak RSS is the maximum recorded for a test worker, not total system memory.
 Test discovery may add cases after these measurements. An absent MOSEK license
 skips its optional cross-check; the open-source solver checks still run.
 
-The full Atalay profile/surface checks require prepared grids and were explicitly
-skipped because those grids were absent. MATLAB/Stata and a complete paper run
-were not benchmarked in this cleanup. Full simulation settings, especially the
+The initial integration measurement skipped the Atalay grids because they were
+absent. The subsequent Atalay cleanup recovered the completed grids and passed
+all benchmark, profile and surface checks. Repricing all 106 profile points and
+5,967 surface cells reproduced the finished figures' values exactly; rendered
+figures were pixel-identical at a 1,600-pixel long edge. A fresh MATLAB check of
+one cell in each of the three surface calibrations and the benchmark profile
+also reproduced the original shocks, propagation matrices and factor fits exactly.
+The 176 existing one-factor optimizer-limit flags were preserved.
+
+A full MATLAB/Stata preparation and complete paper run were not benchmarked.
+Full simulation settings, especially the
 GIV cells with 1,000 units and up to 10,000 periods, are much larger than smoke
 settings. No measured full-run memory requirement is claimed.
 

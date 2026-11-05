@@ -22,7 +22,7 @@ RUN_FILES = {"run_report.json", "result_checks.json"}
 # This list also lets the replication checkout run without the manuscript.
 EXHIBITS = {
     "atalay_elasticity_profile.pdf",
-    "atalay_elasticity_surface.png",
+    "atalay_surface_comparison.pdf",
     "bea_granular_ceiling_figure1.pdf",
     "compustat_industry_dependence_ci.pdf",
     "factor_count_overview.pdf",

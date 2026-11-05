@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""Checks for the Atalay eps_M/eps_Q primitive-granularity profiles.
-
-Both profiles re-run the deposited Atalay filter at many elasticities, so the
-things worth pinning are that (i) the eps_M grid point at Atalay's own
-calibration reproduces the deposited benchmark export bit-for-bit, (ii) the
-ceiling we read off it is the number Section~5 already quotes, (iii) both
-grids reproduce Atalay's own published one-factor shares at his benchmark and
-unit-elasticity parameterizations, (iv) the eps_Q grid's Equation-(11)
-recursion is undefined everywhere (eps_M held at unity puts it outside
-Atalay's own conditioning screen at every point), and (v) the
-reverse-identification inversion behaves on both sweeps.
-"""
+"""Check profile exports, benchmark estimates and direct-recursion availability."""
 
 from __future__ import annotations
 
@@ -19,15 +8,12 @@ import pandas as pd
 from scipy.io import loadmat
 
 from mgp_core import choose_solver
+from applications.atalay.common import UNITY, grouped_ceiling
 from applications.atalay.run_atalay_epsilon import DEFAULT_NETWORK_V_CSV, DEFAULT_SHOCKS_CSV
 from applications.atalay.run_atalay_elasticity_profile import (
     PROFILE_CSV,
     PROFILE_ROOT,
     SWEEPS,
-    UNITY,
-    crossings,
-    grouped_ceiling,
-    identified_sets,
     load_grid,
 )
 
@@ -57,6 +43,8 @@ def main() -> int:
     require_files(PROFILE_CSV, DEFAULT_SHOCKS_CSV, DEFAULT_NETWORK_V_CSV,
                   *(PROFILE_ROOT / sweep / "grid_index.csv" for sweep in SWEEPS))
     profile = pd.read_csv(PROFILE_CSV)
+    if "M" in profile:
+        assert profile["M"].eq(10).all()
     indexes = {}
     for sweep in SWEEPS:
         profile_dir = PROFILE_ROOT / sweep
@@ -111,7 +99,7 @@ def main() -> int:
     assert q_all["mgp_share"].isna().all()
     assert q_all["mgp_share_kf"].notna().all()
 
-    # 5. The cached profile and its inversion are internally consistent.
+    # 5. The cached profile respects the direct-recursion screen.
     assert len(profile) == sum(len(idx) for idx in indexes.values())
     for sweep in SWEEPS:
         d = profile[profile["sweep"].eq(sweep)]
@@ -131,25 +119,6 @@ def main() -> int:
         SECTION5_CEILING,
         atol=1e-9,
     )
-
-    for sweep in SWEEPS:
-        for column in ("mgp_share", "mgp_share_kf"):
-            sets = identified_sets(profile, sweep, column)
-            d = profile[profile["sweep"].eq(sweep)].dropna(subset=[column])
-            for _, row in sets.iterrows():
-                inside = d[d[column] >= row["threshold"]]
-                assert bool(row["attained"]) == (not inside.empty)
-                assert int(row["n_grid_points"]) == len(inside)
-                if not inside.empty:
-                    assert np.isclose(row["grid_min_value"], inside["value"].min())
-                    assert np.isclose(row["grid_max_value"], inside["value"].max())
-                assert (row["threshold"] <= row["profile_max"]) == bool(row["attained"])
-
-    # 6. The crossing helper: exact, interior, and no-crossing cases.
-    x = np.array([0.0, 1.0, 2.0])
-    assert crossings(x, np.array([0.2, 0.6, 0.4]), 0.5) == [0.75, 1.5]
-    assert crossings(x, np.array([0.5, 0.6, 0.4]), 0.5) == [0.0, 1.5]
-    assert crossings(x, np.array([0.2, 0.3, 0.4]), 0.5) == []
 
     print(
         f"Atalay eps_M/eps_Q profile checks passed ({len(profile)} grid points "

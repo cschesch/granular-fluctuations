@@ -11,9 +11,9 @@ from mgp_core import align_sizes_to_panel, build_lpt_grouped_data, choose_solver
 from applications.atalay.run_atalay_epsilon import (
     DEFAULT_NETWORK_V_CSV,
     DEFAULT_SHOCKS_CSV,
-    DERIVED,
     load_atalay_panel,
 )
+from applications.atalay.common import DERIVED
 from applications.networks import matrix_inner, network_observed_stats
 
 

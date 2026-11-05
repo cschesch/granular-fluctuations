@@ -1,34 +1,10 @@
-% Export the Atalay (2017) primitive-shock inversion over a grid of one
-% elasticity of substitution, holding the others at Atalay's Figure 3 values.
-%
-% Sweeping eps_M fixes (eps_D, eps_Q) = (1, 1); sweeping eps_Q fixes
-% (eps_D, eps_M) = (1, 1); unity is the package's own 0.999 stand-in, since the
-% model is singular at exactly one.  These are the two panels of his Figure 3.
-% For each grid point this driver calls the DEPOSITED, UNMODIFIED filter_full.m
-% and saves the objects our downstream analysis needs:
-%
-%   filtered_shocks_A     the 49-by-30 raw recursive Equation-(11) filter
-%                         productivity innovations for 1965--2013, exactly as
-%                         they exist immediately before factoran_ is applied,
-%   filtered_shocks_A_kf  the Kalman-filter counterpart, which filter_full.m
-%                         computes unconditionally and which the package falls
-%                         back on where the Equation-(11) filter fails its own
-%                         stability/conditioning screens, and
-%   V                     the symmetric matrix with aggregate-output variance
-%                         trace(V * Sigma_omega), built from the impact response
-%                         plus horizons 0--25 exactly as in filter_full.m.
-%
-% Nothing in the deposited replication package is edited: filter_full.m is a
-% script, so this driver only supplies the workspace that filter_master.m
-% would have supplied, and reads its outputs afterwards.
-%
-% Usage (from any directory):
-%   matlab -batch "ATALAY_SWEEP='eps_M'; run('<repo>/code/applications/atalay/export_atalay_elasticity_profile.m')"
-%   matlab -batch "ATALAY_SWEEP='eps_Q'; run('<repo>/code/applications/atalay/export_atalay_elasticity_profile.m')"
-%
-% ATALAY_REPO_ROOT, ATALAY_PROFILE_OUT and ATALAY_PROFILE_GRID may also be set
-% in the caller's workspace to override the repository root, the export
-% directory and the grid (the test harness uses the last two).
+% Export the two one-dimensional elasticity profiles from filter_full.m.
+% eps_M varies with (eps_D,eps_Q)=(.999,.999); eps_Q varies with
+% (eps_D,eps_M)=(.999,.999). Unity uses the source model's .999 stand-in.
+% The unmodified publication script supplies direct/Kalman shocks and its
+% one-factor shares. V sums the impact response and horizons 0--25.
+% ATALAY_SWEEP selects eps_M/eps_Q; ATALAY_REPO_ROOT, ATALAY_PROFILE_OUT and
+% ATALAY_PROFILE_GRID optionally override the root, destination and grid.
 
 if exist('ATALAY_SWEEP', 'var')
     prof_sweep = ATALAY_SWEEP;

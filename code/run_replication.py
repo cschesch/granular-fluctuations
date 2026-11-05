@@ -233,10 +233,12 @@ def analysis_sections():
         Analysis("Atalay elasticity profile", (("applications.atalay.run_atalay_elasticity_profile",),),
                  (DATA / "atalay2017/replication_elasticities.zip",
                   *(ATALAY / "elasticity_profile" / sweep / "grid_index.csv" for sweep in ("eps_M", "eps_Q"))), ("atalay_elasticity_profile.pdf",)),
-        Analysis("Atalay elasticity surface", (("applications.atalay.run_atalay_elasticity_surface",),),
+        Analysis("Atalay calibration comparison", (("applications.atalay.run_atalay_elasticity_surface",),),
                  (DATA / "atalay2017/replication_elasticities.zip",
                   *(ATALAY / "elasticity_surface" / f"atalay_surface_epsD_{value}.mat"
-                    for value in (250, 500, 750, 900, 999, 1250))), ("atalay_elasticity_surface.png",)),
+                    for value in (667, 999, 1333)),
+                  *(ATALAY / "elasticity_surface" / f"one_factor_{value}.csv"
+                    for value in (667, 999, 1333))), ("atalay_surface_comparison.pdf",)),
     )
     SIMULATIONS = (
         Analysis("Simulations", (

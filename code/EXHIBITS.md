@@ -20,7 +20,7 @@ Output filenames are retained so existing manuscript references still work.
 | Table A.2 | Matched Foerster comparison | `table_foerster_matched_tabular.tex` | `applications.foerster.run_foerster_matched_comparison` |
 | Table A.3 | Stella input moments | `table_stella_input_moments.tex` | `applications.stella.audit_stella_input_moments` |
 | Table A.4 | Welburn input moments | `welburn_input_moments.tex` | `applications.welburn.build_welburn_moments` |
-| Figure A.4 | Atalay elasticity surface | `atalay_elasticity_surface.png` | `applications.atalay.run_atalay_elasticity_surface` |
+| Figure A.4 | Atalay calibration: one-factor estimate and factor-free ceiling | `atalay_surface_comparison.pdf` | `applications.atalay.run_atalay_elasticity_surface` |
 | Figure A.5 | Sectoral granularity and GDP volatility | `bea_granular_ceiling_figure1.pdf` | `applications.volatility.run_bea_granular_ceiling` |
 | Figure A.6 | Firm granularity and GDP volatility | `firm_granular_volatility.pdf` | `applications.volatility.run_great_diversification` |
 | Figure D.1 | Confidence-limit coverage | `mc_new_coverage.pdf` | `plot_inference_mc` |

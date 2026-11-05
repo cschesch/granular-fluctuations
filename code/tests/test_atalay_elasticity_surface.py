@@ -1,147 +1,104 @@
-#!/usr/bin/env python3
-"""Checks for the 3-D Atalay (eps_D, eps_M, eps_Q) elasticity surface.
-
-The surface export re-runs the deposited, unmodified filter over 11,934 parameter
-vectors, so the things worth pinning are that (i) the cell sitting at Atalay's
-own benchmark calibration reproduces the deposited benchmark export bit-for-bit,
-(ii) the ceilings read off that cell -- Kalman, which the surface uses, and
-Equation-(11), which Section~5 quotes -- are both what they should be, and
-(iii) the surface agrees with the one-dimensional profile everywhere the two
-grids touch, which is the eps_D = 1 slab along eps_Q at eps_M = unity.
-
-The full-data regression runs after `make all` has prepared and priced the grid.
-"""
-
-from __future__ import annotations
-
-import sys
+"""Check the published three-slab Kalman surface and its one-factor comparison."""
 
 import numpy as np
 import pandas as pd
-
-from mgp_core import choose_solver
-from applications.atalay.run_atalay_elasticity_profile import PROFILE_CSV, UNITY, grouped_ceiling
 from scipy.io import loadmat
 
-from applications.atalay.run_atalay_elasticity_surface import (
-    BENCHMARK,
-    SURFACE_CSV,
-    SURFACE_ROOT,
-    load_slabs,
-    preferred,
-)
+from applications.atalay.common import SURFACE_ROOT, SURFACE_SLABS, UNITY, grouped_ceiling
+from applications.atalay.run_atalay_elasticity_profile import PROFILE_CSV
+from applications.atalay.run_atalay_elasticity_surface import SURFACE_CSV
 from applications.atalay.run_atalay_epsilon import DEFAULT_SHOCKS_CSV
+from mgp_core import choose_solver
+from tests.support import require_files
 
-# Section 5's headline Atalay column, reproduced by test_atalay_epsilon.py, and
-# the Kalman counterpart at the same parameters, from the eps_M profile.
-SECTION5_CEILING = 0.3487879683352339
-BENCHMARK_KALMAN_CEILING = 0.3521901844304733
-# The surface grid is coarser than the profile grid, so cells the two share are
-# compared at the solver's own tolerance rather than bit-for-bit.
+
+TEST_GROUP = "integration"
+TEST_CACHE_INPUTS = (
+    ".cache/derived/atalay2017/elasticity_surface/*.mat",
+    ".cache/derived/atalay2017/elasticity_surface/one_factor_*.csv",
+    ".cache/derived/atalay2017/atalay_benchmark_*.csv",
+    ".cache/run_outputs/atalay_elasticity_profile.csv",
+    ".cache/run_outputs/atalay_surface_comparison.csv",
+)
+BENCHMARK_DIRECT = 0.3487879683352339
+BENCHMARK_KALMAN = 0.3521901844304733
+BENCHMARK_ONE_FACTOR_KALMAN = 0.8364535577959672
 CEILING_TOL = 1e-6
 
 
-def _cell(slab: dict, value_m: float, value_q: float) -> tuple[int, int]:
-    eps_m = np.atleast_1d(np.asarray(slab["eps_M_grid"], dtype=float))
-    eps_q = np.atleast_1d(np.asarray(slab["eps_Q_grid"], dtype=float))
-    i = int(np.argmin(np.abs(eps_m - value_m)))
-    j = int(np.argmin(np.abs(eps_q - value_q)))
-    if abs(eps_m[i] - value_m) > 1e-6 or abs(eps_q[j] - value_q) > 1e-6:
-        raise AssertionError(
-            f"({value_m}, {value_q}) is not on the grid; nearest is "
-            f"({eps_m[i]}, {eps_q[j]})."
-        )
-    return i, j
-
-from tests.support import require_files
-
-TEST_GROUP = "integration"
-TEST_CACHE_INPUTS = (".cache/derived/atalay2017/elasticity_surface/*.mat", ".cache/derived/atalay2017/atalay_benchmark_*.csv", ".cache/run_outputs/atalay_elasticity_profile.csv", ".cache/run_outputs/atalay_elasticity_surface.csv")
+def cell_index(grid, value):
+    hits = np.flatnonzero(np.isclose(grid, value, rtol=0, atol=1e-10))
+    assert len(hits) == 1, f"Expected one grid point at {value}, found {len(hits)}"
+    return int(hits[0])
 
 
 def main() -> int:
-    required = [SURFACE_CSV, PROFILE_CSV, DEFAULT_SHOCKS_CSV]
-    required.extend(SURFACE_ROOT / f"atalay_surface_epsD_{value}.mat" for value in (250, 500, 750, 900, 999, 1250))
-    require_files(*required)
+    require_files(SURFACE_CSV, PROFILE_CSV, DEFAULT_SHOCKS_CSV,
+                  *(SURFACE_ROOT / f"atalay_surface_epsD_{tag}.mat" for tag in SURFACE_SLABS),
+                  *(SURFACE_ROOT / f"one_factor_{tag}.csv" for tag in SURFACE_SLABS))
+    surface = pd.read_csv(SURFACE_CSV)
+    assert surface["M"].eq(10).all()
+    assert len(surface) == 3 * 39 * 51
+    assert not surface.duplicated(["eps_D", "eps_M", "eps_Q"]).any()
+    assert np.allclose(sorted(surface.eps_D.unique()), [2 / 3, UNITY, 4 / 3], rtol=0, atol=1e-12)
+    assert np.isfinite(surface[["one_factor", "mgp_share_kf"]]).all().all()
+    assert surface["fit_limit"].isin([False, True]).all()
     solver = choose_solver("auto")
-    # ``load_slabs`` returns paths, so that the pricer can farm them out to workers.
-    slabs = [loadmat(path, squeeze_me=True) for path in load_slabs(SURFACE_ROOT)]
-    slabs.sort(key=lambda slab: float(np.asarray(slab["eps_D"])))
-    print(f"[surface-test] {len(slabs)} slabs at eps_D = "
-          + ", ".join(f"{float(np.asarray(s['eps_D'])):g}" for s in slabs))
 
-    # (i) and (ii): the benchmark cell against the deposited export and Section 5.
-    benchmark = [s for s in slabs if np.isclose(float(np.asarray(s["eps_D"])), UNITY)]
-    if not benchmark:
-        raise AssertionError("No eps_D = 1 slab: the benchmark cell cannot be checked.")
-    slab = benchmark[0]
-    i, j = _cell(slab, BENCHMARK["eps_M"], UNITY)
-    if not bool(np.atleast_2d(slab["ok"])[i, j]):
-        raise AssertionError("The benchmark cell did not solve in the export.")
-    shocks = np.asarray(slab["shocks"], dtype=float)[i, j]
-    deposited = pd.read_csv(DEFAULT_SHOCKS_CSV).select_dtypes("number").to_numpy()[:, -30:]
-    gap = float(np.max(np.abs(shocks - deposited)))
-    assert gap < 1e-10, f"Benchmark cell differs from the deposited export by {gap:.2e}."
-    print(f"[surface-test] benchmark cell matches the deposited shocks to {gap:.2e}")
+    for tag in SURFACE_SLABS:
+        slab = loadmat(SURFACE_ROOT / f"atalay_surface_epsD_{tag}.mat", squeeze_me=True)
+        d = float(slab["eps_D"])
+        m_grid = np.atleast_1d(slab["eps_M_grid"])
+        q_grid = np.atleast_1d(slab["eps_Q_grid"])
+        assert (len(m_grid), len(q_grid), int(slab["rows_done"])) == (39, 51, 39)
+        assert (np.diff(m_grid) > 0).all() and (np.diff(q_grid) > 0).all()
+        assert np.asarray(slab["ok"]).all()
+        assert np.array_equal(np.asarray(slab["years"])[[0, -1]], [1965, 2013])
+        block = surface[np.isclose(surface.eps_D, d)].set_index(["eps_M", "eps_Q"]).sort_index()
+        grid = pd.MultiIndex.from_product([m_grid, q_grid], names=["eps_M", "eps_Q"])
+        assert np.allclose(np.asarray(block.index.tolist()), np.asarray(grid.tolist()),
+                           rtol=0, atol=1e-12)
 
-    network = 0.5 * (np.asarray(slab["V"], dtype=float)[i, j]
-                     + np.asarray(slab["V"], dtype=float)[i, j].T)
-    ceiling = grouped_ceiling(shocks, network, 10, solver)["mgp_share"]
-    gap = abs(ceiling - SECTION5_CEILING)
-    assert gap < CEILING_TOL, (
-        f"Benchmark Equation-(11) ceiling {ceiling:.6f} differs from Section 5's "
-        f"{SECTION5_CEILING:.6f} by {gap:.2e}."
-    )
-    print(f"[surface-test] benchmark Equation-(11) ceiling {ceiling:.4%} reproduces Section 5")
+        # Keep the original MATLAB fit values and iteration-limit flags intact.
+        fits = pd.read_csv(SURFACE_ROOT / f"one_factor_{tag}.csv").set_index(["eps_M", "eps_Q"]).sort_index()
+        assert fits.index.equals(block.index)
+        assert np.allclose(block.one_factor, fits.one_factor, rtol=0, atol=1e-14)
+        assert np.array_equal(block.fit_limit.astype(bool), fits.fit_limit.astype(bool))
 
-    # The surface itself is the Kalman filter everywhere, so pin that too.
-    kalman = np.asarray(slab["shocks_kf"], dtype=float)[i, j]
-    ceiling_kf = grouped_ceiling(kalman, network, 10, solver)["mgp_share"]
-    gap = abs(ceiling_kf - BENCHMARK_KALMAN_CEILING)
-    assert gap < CEILING_TOL, (
-        f"Benchmark Kalman ceiling {ceiling_kf:.6f} differs from the profile's "
-        f"{BENCHMARK_KALMAN_CEILING:.6f} by {gap:.2e}."
-    )
-    print(f"[surface-test] benchmark Kalman ceiling {ceiling_kf:.4%} reproduces the profile")
+        # Re-estimate representative cells from shocks, including the benchmark.
+        selected = [(0, 0), (cell_index(m_grid, .1), cell_index(q_grid, UNITY)),
+                    (len(m_grid) - 1, len(q_grid) - 1)]
+        for i, j in selected:
+            v = np.asarray(slab["V"], dtype=float)[i, j]
+            v = .5 * (v + v.T)
+            shocks = np.asarray(slab["shocks_kf"], dtype=float)[i, j]
+            actual = grouped_ceiling(shocks, v, 10, solver)["mgp_share"]
+            expected = float(block.iloc[i * len(q_grid) + j].mgp_share_kf)
+            assert np.isclose(actual, expected, rtol=0, atol=CEILING_TOL)
 
-    # (iii): where the surface and the one-dimensional eps_Q profile overlap.
-    surface = preferred(pd.read_csv(SURFACE_CSV))
-    assert surface["M"].eq(10).all(), "Surface must use the paper-wide M=10."
-    # The profile CSV indexes its sweep by ``value``; align it to the surface's
-    # named axis before merging. Only the eps_Q sweep touches the surface, and only
-    # at eps_M = eps_D = 1, where the recursion fails everywhere and both sides use
-    # the Kalman filter.
+        if tag == 999:
+            i, j = cell_index(m_grid, .1), cell_index(q_grid, UNITY)
+            shocks = np.asarray(slab["shocks"], dtype=float)[i, j]
+            deposited = pd.read_csv(DEFAULT_SHOCKS_CSV).filter(like="shock_").to_numpy(float)
+            assert np.allclose(shocks, deposited, rtol=0, atol=1e-10)
+            v = np.asarray(slab["V"], dtype=float)[i, j]
+            direct = grouped_ceiling(shocks, .5 * (v + v.T), 10, solver)["mgp_share"]
+            assert np.isclose(direct, BENCHMARK_DIRECT, rtol=0, atol=CEILING_TOL)
+            point = block.iloc[i * len(q_grid) + j]
+            assert np.isclose(point.mgp_share_kf, BENCHMARK_KALMAN, rtol=0, atol=CEILING_TOL)
+            assert np.isclose(point.one_factor, BENCHMARK_ONE_FACTOR_KALMAN, rtol=0, atol=1e-12)
+
+    # Both outputs use the same Kalman calculation where their grids overlap.
     profile = pd.read_csv(PROFILE_CSV)
-    profile = profile[profile["sweep"].eq("eps_Q")].rename(columns={"value": "eps_Q"})
-    overlap = surface[
-        np.isclose(surface["eps_D"], UNITY) & np.isclose(surface["eps_M"], UNITY)
-    ].merge(profile[["eps_Q", "mgp_share_kf"]].rename(
-        columns={"mgp_share_kf": "profile_share"}), on="eps_Q")
-    if overlap.empty:
-        print("[surface-test] no (eps_D, eps_M) = (1, 1) cells to compare with the profile")
-    else:
-        gap = float((overlap["mgp_share_preferred"] - overlap["profile_share"]).abs().max())
-        assert gap < CEILING_TOL, (
-            f"Surface and profile disagree by {gap:.2e} on {len(overlap)} shared eps_Q cells."
-        )
-        print(f"[surface-test] surface matches the eps_Q profile on {len(overlap)} shared "
-              f"cells to {gap:.2e}")
-
-    # (iv): the drawn surface is the Kalman ceiling at every cell, and the two
-    # filters stay close where both are defined.
-    priced = surface[surface["mgp_share_preferred"].notna()]
-    assert priced["mgp_share_preferred"].equals(priced["mgp_share_kf"]), (
-        "The drawn surface is not the Kalman ceiling everywhere."
-    )
-    both = priced.dropna(subset=["mgp_share"])
-    spread = (both["mgp_share_kf"] - both["mgp_share"]).abs()
-    print(f"[surface-test] {len(priced)} priced cells, all Kalman; on the "
-          f"{len(both)} where the recursion is also defined the two differ by "
-          f"{spread.median():.2%} at the median")
-
-    print("[surface-test] all checks passed")
+    profile = profile[profile.sweep.eq("eps_Q")].rename(columns={"value": "eps_Q"})
+    overlap = surface[np.isclose(surface.eps_D, UNITY) & np.isclose(surface.eps_M, UNITY)].merge(
+        profile[["eps_Q", "mgp_share_kf"]], on="eps_Q", suffixes=("_surface", "_profile"))
+    assert not overlap.empty
+    assert np.allclose(overlap.mgp_share_kf_surface, overlap.mgp_share_kf_profile,
+                       rtol=0, atol=CEILING_TOL)
+    print(f"Atalay surface checks passed: {len(surface)} cells across three calibrations.")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
