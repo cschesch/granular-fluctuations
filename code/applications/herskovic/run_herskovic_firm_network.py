@@ -22,7 +22,7 @@ from scipy.sparse import csr_matrix, eye, save_npz
 from scipy.sparse.linalg import splu
 
 from mgp_core import (
-    ROOT, RUN_OUTPUT_CACHE, ANALYSIS_BOOTSTRAP_DRAWS, analysis_block_length,
+    RUN_OUTPUT_CACHE, ANALYSIS_BOOTSTRAP_DRAWS, analysis_block_length,
     build_lpt_grouped_data, choose_solver, clean_panel_cache_path, make_panel_rng,
     read_clean_panel_cache, write_clean_panel_cache, sample_cov,
 )
@@ -35,12 +35,11 @@ from applications.networks import (
 REPLICATION_ROOT = upstream("herskovic2020")
 SALES_FILE = REPLICATION_ROOT / "data/Compustat Qtrly Sales and GIC July2017.txt"
 CPI_FILE = REPLICATION_ROOT / "data/fred_deflators_annual.xlsx"
-PACKAGE_ROOT = REPLICATION_ROOT
-LINKAGES_FILE = PACKAGE_ROOT / "data/linkages2013.mat"
-PARAMETERS_FILE = PACKAGE_ROOT / "code/guess/benchmark_parameters.mat"
+LINKAGES_FILE = REPLICATION_ROOT / "data/linkages2013.mat"
+PARAMETERS_FILE = REPLICATION_ROOT / "code/guess/benchmark_parameters.mat"
 SIZE_CACHE = DERIVED_CACHE / "herskovic2020/calibrated_sizes_matlab_seed100.mat"
 DERIVED = DERIVED_CACHE / "herskovic2020" / "schur1980"
-DIAGNOSTICS_FILE = ROOT / "output/herskovic_firm_network_diagnostics.json"
+DIAGNOSTICS_FILE = RUN_OUTPUT_CACHE / "herskovic_firm_network_diagnostics.json"
 SEED = 20261103
 
 
@@ -48,11 +47,8 @@ SEED = 20261103
 class HerskovicInputs:
     outcomes: np.ndarray  # T x N; a common scale makes shares sum to one
     shares: np.ndarray  # normalized propagation exposures
-    raw_shocks: np.ndarray
-    growth: np.ndarray
     ids: pd.Index
     dates: pd.PeriodIndex
-    initial_sales_shares: np.ndarray
     diagnostics: dict
 
 
@@ -194,8 +190,13 @@ def snapshot_links(raw):
 
 def complete_rows(sizes, known: csr_matrix, disclosure_valid, public, params,
                   seed: int, max_attempts: int = 10000):
-    """One independent RNG per row; failures are errors, with no silent fallback."""
+    """Preserve raw disclosed sales shares in gamma*W, with independent row RNGs."""
     n = len(sizes)
+    gamma = float(params['gamma'])
+    if not 0 < gamma < 1:
+        raise ValueError('The propagation coefficient must lie strictly between zero and one')
+    if not np.isfinite(known.data).all() or np.any(known.data < 0):
+        raise ValueError('Disclosed sales shares must be finite and nonnegative')
     p = np.clip(n ** (1-.87) * sizes / sizes.sum() / params['Z'], 0, 1)
     score = sizes ** params['psi']
     rows, cols, values = [], [], []
@@ -203,11 +204,13 @@ def complete_rows(sizes, known: csr_matrix, disclosure_valid, public, params,
     for i in range(n):
         rng = np.random.default_rng(np.random.SeedSequence([seed, 1, i]))
         start, end = known.indptr[i:i+2]
-        fixed_j, fixed_w = known.indices[start:end], known.data[start:end]
-        q = float(fixed_w.sum())
-        if q > 1 + 1e-12:
-            raise ValueError(f'Observed row {i} sums to {q}; refusing to rescale')
-        residual = max(0., 1-q)
+        fixed_j = known.indices[start:end]
+        q = float(known.data[start:end].sum())
+        if q > gamma:
+            raise ValueError(f'Disclosed sales in row {i} sum to {q}, exceeding gamma={gamma}; '
+                             'cannot preserve these shares in a row-normalized network')
+        fixed_w = known.data[start:end] / gamma
+        residual = max(0., 1-q/gamma)
         candidates = np.ones(n, dtype=bool)
         candidates[i] = False
         candidates[fixed_j] = False
@@ -227,7 +230,7 @@ def complete_rows(sizes, known: csr_matrix, disclosure_valid, public, params,
                         rejected_empty += 1
                         continue
                 missing_w = residual * score[missing] / score[missing].sum()
-                if disclosure_valid[i] and np.any(missing_w[public[missing]] >= .1):
+                if disclosure_valid[i] and np.any(gamma * missing_w[public[missing]] >= .1):
                     rejected_disclosure += 1
                     continue
                 break
@@ -237,26 +240,28 @@ def complete_rows(sizes, known: csr_matrix, disclosure_valid, public, params,
         jj = np.r_[fixed_j, missing]
         ww = np.r_[fixed_w, missing_w]
         rows.extend([i]*len(jj)); cols.extend(jj.tolist()); values.extend(ww.tolist())
-        audit.append((i, float(p[i]), len(fixed_j), q, len(missing), attempts,
+        audit.append((i, float(p[i]), len(fixed_j), q, q/gamma, len(missing), attempts,
                       rejected_empty, rejected_disclosure))
     w = csr_matrix((values, (rows, cols)), shape=(n,n))
     diagnostics = pd.DataFrame(audit, columns=[
         'node', 'connection_probability', 'observed_links', 'observed_share',
+        'observed_network_weight',
         'imputed_links', 'attempts', 'rejected_empty', 'rejected_disclosure',
     ])
     return w, diagnostics
 
-def check_network(w, known, disclosure_valid, public) -> dict:
+def check_network(w, known, disclosure_valid, public, gamma) -> dict:
     row_error = float(np.max(np.abs(np.asarray(w.sum(axis=1)).ravel()-1)))
     assert row_error < 1e-12
     assert np.all(w.data >= 0) and np.all(w.diagonal() == 0)
     assert np.all(np.diff(w.indptr) > 0)
     rr, cc = known.nonzero()
-    observed_error = float(np.max(np.abs(np.asarray(w[rr,cc]).ravel()-known.data), initial=0))
-    assert observed_error == 0
-    extra = w-known
+    observed_error = float(np.max(np.abs(gamma*np.asarray(w[rr,cc]).ravel()-known.data), initial=0))
+    assert observed_error < 1e-12
+    extra = w-known/gamma
+    extra.eliminate_zeros()
     er, ec = extra.nonzero()
-    unexpected = disclosure_valid[er] & public[ec] & (extra.data >= .1)
+    unexpected = disclosure_valid[er] & public[ec] & (gamma*extra.data >= .1)
     assert not unexpected.any()
     return {'maximum_row_sum_error': row_error, 'maximum_observed_share_error': observed_error,
             'unexpected_disclosed_public_links': int(unexpected.sum()),
@@ -281,8 +286,10 @@ def schur_recover(w, gamma, positions, growth, weights):
 
 
 def build_herskovic_inputs(*, use_cache=True):
+    # Preparation must precede the fingerprint on a fresh checkout.
+    sizes = original_sizes()
     sources = [Path(__file__), SALES_FILE, CPI_FILE, LINKAGES_FILE, PARAMETERS_FILE, SIZE_CACHE]
-    cache = clean_panel_cache_path("herskovic_schur_inputs", {"version": 1, "seed": SEED}, sources)
+    cache = clean_panel_cache_path("herskovic_schur_inputs", {"version": 2, "seed": SEED}, sources)
     cached = read_clean_panel_cache(cache) if use_cache else None
     if cached is not None and (DERIVED / "network_W.npz").exists():
         return HerskovicInputs(**cached)
@@ -290,7 +297,7 @@ def build_herskovic_inputs(*, use_cache=True):
     growth = panel["growth"]
     ids = growth.index
     params = benchmark_parameters()
-    firms = match_sizes(panel["mean_real_sales"], original_sizes())
+    firms = match_sizes(panel["mean_real_sales"], sizes)
     n, m = len(firms), len(ids)
     lookup = pd.Series(firms.node.to_numpy(), index=firms.permno)
     pairs = snapshot_links(load_linkages())
@@ -300,7 +307,7 @@ def build_herskovic_inputs(*, use_cache=True):
     identified = firms.permno.gt(0).to_numpy()
     screened = firms.permno.isin(pairs.permno).to_numpy() & identified
     w, row_diagnostics = complete_rows(firms.model_size.to_numpy(), known, screened, identified, params, SEED)
-    checks = check_network(w, known, screened, identified)
+    checks = check_network(w, known, screened, identified, params['gamma'])
     positions = lookup.reindex(ids).to_numpy(int)
     weights = panel["initial_sales_shares"].to_numpy()
     g = growth.to_numpy().T
@@ -316,6 +323,7 @@ def build_herskovic_inputs(*, use_cache=True):
         "unobserved_firms": n-m, "size_seed": 100, "network_seed": SEED,
         "size_matching": "closest remaining log-size pairs using mean real annual sales, 1980--2012",
         "calibrated_parameters": params, "model_size_population_preserved": True,
+        "sales_share_normalization": "Disclosed q_ij is gamma*W_ij; rows of W sum to one; undisclosed public links require gamma*W_ij < 0.10.",
         "median_absolute_log_size_error": float(np.median(np.abs(np.log(ratio)))),
         "observed_links_preserved": known.nnz, "observed_suppliers": int(internal.permno.nunique()),
         "disclosure_screened_suppliers": int(screened.sum()),
@@ -332,8 +340,8 @@ def build_herskovic_inputs(*, use_cache=True):
     np.savez_compressed(DERIVED / "shocks.npz", primitive_shocks=shocks, exposures=exposures,
                         effective_operator=effective_operator, growth=g, initial_sales_shares=weights,
                         ids=ids.to_numpy(), quarters=growth.columns.astype(str).to_numpy(dtype="U6"))
-    payload = dict(outcomes=outcomes, shares=shares, raw_shocks=shocks, growth=g,
-                   ids=ids, dates=growth.columns, initial_sales_shares=weights, diagnostics=diagnostics)
+    payload = dict(outcomes=outcomes, shares=shares, ids=ids,
+                   dates=growth.columns, diagnostics=diagnostics)
     write_clean_panel_cache(cache, payload)
     return HerskovicInputs(**payload)
 
@@ -369,8 +377,8 @@ def main():
     }
     cap_dynamic_share_report(summary)
     diagnostics["ucl95"] = summary.get("moving_block_gradient_bootstrap_p95")
-    DIAGNOSTICS_FILE.write_text(json.dumps(diagnostics, indent=2) + "\n")
     RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
+    DIAGNOSTICS_FILE.write_text(json.dumps(diagnostics, indent=2) + "\n")
     destination = RUN_OUTPUT_CACHE / "herskovic_firm_network_M10_summary.pkl"
     pd.DataFrame([summary]).to_pickle(destination)
     print(pd.Series(summary).to_string(), flush=True)

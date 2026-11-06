@@ -17,6 +17,11 @@ import time
 
 from project_paths import CODE_DIR, DERIVED_CACHE, ROOT, find_program
 from wrds_inputs import wrds_path, verify_inputs
+from applications.stella.paths import (
+    CALIBRATION as STELLA_CALIBRATION,
+    DENSE as STELLA_DENSE,
+    UNBALANCED as STELLA_UNBALANCED,
+)
 
 
 OUT = ROOT / "output"
@@ -191,7 +196,6 @@ def analysis_sections():
             ("applications.stella.validate_stella_calibration_source",),
             ("applications.stella.solve_stella_dynamic",),
             ("applications.stella.run_stella_firm_network",),
-            ("applications.stella.audit_stella_input_moments",),
         ), (
             ANNUAL, CUSTOMERS, GDPDEF, ALIASES, wrds_path("stella_quarterly", path=os.environ.get("STELLA_QUARTERLY_FILE")),
             *(STELLA_DATA / name for name in (
@@ -209,7 +213,26 @@ def analysis_sections():
             *(FOERSTER_MODEL_INPUTS / f"{stem}.csv" for stem in ("matrix_io", "alpha", "matrix_capital")),
             *(FOERSTER / f"{stem}_98_benchmark.csv" for stem in ("pii_a", "xi", "cap_rho")),
         ),
-            summaries=("stella_revtq_firm_network_M10_summary.pkl", "stella_input_moment_comparison.pkl"),
+            summaries=("stella_revtq_firm_network_M10_summary.pkl",)),
+        Analysis("Stella dense network", (
+            ("applications.stella.prepare_stella_dense",),
+            ("applications.stella.validate_stella_calibration_source", "--calibration-dir", str(STELLA_DENSE)),
+            ("applications.stella.solve_stella_dynamic", "--input-dir", str(STELLA_DENSE)),
+            ("applications.stella.run_stella_firm_network", "--calibration-dir", str(STELLA_DENSE),
+             "--output-stem", "stella_revtq_dense_firm_network"),
+        ), (
+            STELLA_DATA / "source.zip",
+            *(STELLA_CALIBRATION / name for name in (
+                "firm_mapping.csv", "firm_employment_ratios.csv", "sales_growth_sax12.csv",
+                "nominal_saleq_levels.csv", "sales_preparation_sax12_diagnostics.json",
+                "alpha.csv", "matrix_capital.csv", "diagnostics.json",
+            )),
+        ), summaries=("stella_revtq_dense_firm_network_M10_summary.pkl",)),
+        Analysis("Stella input moments", (("applications.stella.audit_stella_input_moments",),), (
+            STELLA_CALIBRATION / "diagnostics.json", STELLA_DENSE / "matrix_io.csv",
+            STELLA_UNBALANCED / "nominal_saleq_sax12_adjusted.csv", STELLA_UNBALANCED / "top500_index.csv",
+            GDPDEF, DERIVED_CACHE / "stella/deposited_real_gdp_growth.csv",
+        ), summaries=("stella_input_moment_comparison.pkl",),
             missing=(("applications.stella.audit_stella_input_moments", "--blank"),)),
         Analysis("Applications exhibits", (
             ("compute_applications_coefficients",),
@@ -280,7 +303,7 @@ def requested_analyses(sections, section):
 
 def missing_requirements(analysis):
     reasons = [f"Missing input: {path}" for path in analysis.inputs if not path.exists()]
-    if analysis.name in ("Foerster", "Stella") and not reasons:
+    if analysis.name in ("Foerster", "Stella", "Stella dense network") and not reasons:
         from applications.foerster.prepare import prepared_ready
 
         if not prepared_ready():
@@ -294,15 +317,19 @@ def missing_requirements(analysis):
                  else all(prepare.fits_ready(tag) for tag, _ in prepare.SURFACE_VALUES))
         if not valid:
             reasons.append("Atalay prepared inputs do not match their preparation record; rerun applications.atalay.prepare.")
-    # Other external-tool preparers report their own availability. Stella needs
-    # both tools before starting its multi-command reconstruction.
-    if analysis.name == "Stella" and not reasons:
+    # Both Stella calibrations solve a dynamic model; only the customer stage
+    # also rebuilds the sales panel with X-12.
+    if analysis.name in ("Stella", "Stella dense network") and not reasons:
         from network_solver import find_gensys
-        from applications.stella.prepare_stella_sales import locate_x13
 
         if find_program("octave") is None:
             reasons.append("Missing software: Octave; set OCTAVE to its executable.")
-        for locate in (find_gensys, locate_x13):
+        locators = [find_gensys]
+        if analysis.name == "Stella":
+            from applications.stella.prepare_stella_sales import locate_x13
+
+            locators.append(locate_x13)
+        for locate in locators:
             try:
                 locate()
             except FileNotFoundError as error:

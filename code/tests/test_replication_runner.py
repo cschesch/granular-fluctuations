@@ -148,7 +148,7 @@ class ReplicationStatusTests(unittest.TestCase):
         self.assertEqual(json.loads(self.report.read_text())["status"], "failed")
 
     def test_unvalidated_foerster_cache_blocks_both_consumers(self):
-        for name in ("Foerster", "Stella"):
+        for name in ("Foerster", "Stella", "Stella dense network"):
             with self.subTest(name=name), \
                     patch("applications.foerster.prepare.prepared_ready", return_value=False), \
                     patch.object(runner, "run") as run:
@@ -156,6 +156,17 @@ class ReplicationStatusTests(unittest.TestCase):
                 self.assertEqual((code, report["status"]), (0, "partial"))
                 self.assertIn("preparation record", report["analyses"][0]["reasons"][0])
                 run.assert_not_called()
+
+    def test_stella_dense_reuses_prepared_sales_but_requires_dynamic_software(self):
+        analysis = runner.Analysis("Stella dense network", ())
+        with patch("applications.foerster.prepare.prepared_ready", return_value=True), \
+                patch("network_solver.find_gensys", return_value=self.root), \
+                patch("applications.stella.prepare_stella_sales.locate_x13",
+                      side_effect=AssertionError("Prepared sales must not require X-12")):
+            with patch.object(runner, "find_program", return_value="octave"):
+                self.assertEqual(runner.missing_requirements(analysis), [])
+            with patch.object(runner, "find_program", return_value=None):
+                self.assertIn("Octave", runner.missing_requirements(analysis)[0])
 
     def test_unvalidated_atalay_cache_blocks_estimation(self):
         from applications.atalay import prepare

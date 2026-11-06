@@ -35,6 +35,7 @@ from mgp_core import (
 from applications.bls_ces.panel import load_bls_ces_panel
 from applications.bls_cpi.panel import load_bls_cpi_panel
 from applications.crsp.panel import load_crsp_panel
+from applications.figure_layout import hierarchy_positions
 from applications.forbes.panel import FORBES_ARCHIVE_DAILY, load_forbes_billionaire_panels
 from run_multi_source import DAILY_HIGH_M_THRESHOLD
 from compute_applications_coefficients import available_items
@@ -45,23 +46,44 @@ from matplotlib.ticker import PercentFormatter
 
 
 TEAL = "#2f6f73"
-PANEL_LABELS = [
-    "BLS CES Employment",
-    "BLS CPI Inflation (1967 Weights)",
-    "CRSP Daily Returns",
-    "Forbes Billionaire Wealth",
-]
-FIGURE_ITEMS = ("Employment by sector", "Price by item", "Stocks", "Forbes Billionaires")
+PANELS = {
+    "BLS CES Employment": ("Employment by sector", load_bls_ces_panel),
+    "BLS CPI Inflation (1967 Weights)": ("Price by item", load_bls_cpi_panel),
+    "CRSP Daily Returns": ("Stocks", lambda: load_crsp_panel(20 * 252)),
+    "Forbes Billionaire Wealth": (
+        "Forbes Billionaires",
+        lambda: load_forbes_billionaire_panels(None, FORBES_ARCHIVE_DAILY)[0],
+    ),
+}
 SWEEP_COLUMNS = ("panel", "M", "share", "ci_low", "ci_high", "bootstrap_B", "block_length")
+INTERVAL_COLUMNS = ("share", "ci_low", "ci_high")
+# Bump for changes to grouping or inference in this script; plotting does not
+# change cached estimates. Shared numerical implementations are hashed below.
+SWEEP_VERSION = "validated-inference-v1"
 
 
 def inference_fingerprint() -> str:
     """Invalidate saved intervals when their numerical implementation changes."""
-    digest = hashlib.sha256()
+    digest = hashlib.sha256(SWEEP_VERSION.encode())
     for name in ("gradient_bootstrap.py", "near_optimal.py", "fast_mgp.py",
-                 "mgp_kernels.py", "mgp_core.py", "plot_m_sweep.py"):
+                 "mgp_kernels.py", "mgp_core.py", "mosek_face.py"):
         digest.update(Path(__file__).with_name(name).read_bytes())
     return digest.hexdigest()
+
+
+def checked_results(out: pd.DataFrame) -> pd.DataFrame:
+    """Do not redraw or retain intervals from an unchecked numerical method."""
+    if out.empty:
+        return out
+    required = {*SWEEP_COLUMNS, "inference_fingerprint"}
+    if (not required.issubset(out.columns)
+            or not out["inference_fingerprint"].eq(inference_fingerprint()).all()
+            or not np.isfinite(out[list(INTERVAL_COLUMNS)]).all().all()):
+        raise ValueError(
+            "Cached M-sweep intervals are unverified, stale or nonfinite. "
+            "Rerun without --from-cache or --only to rebuild them."
+        )
+    return out
 
 
 def m_grid(t: int) -> list[int]:
@@ -109,7 +131,8 @@ def sweep(
         checkpoint = checkpoint_dir / f"{key}.pkl"
         if checkpoint.exists():
             saved = pd.read_pickle(checkpoint)
-            if all(saved.get(k) == v for k, v in stamp.items()):
+            if (all(saved.get(k) == v for k, v in stamp.items())
+                    and all(np.isfinite(saved.get(k, np.nan)) for k in INTERVAL_COLUMNS)):
                 rows.append(saved)
                 print(f"[{label}] M={m:>3}: verified cached interval", flush=True)
                 continue
@@ -146,11 +169,12 @@ def sweep(
 def compute_sweep_results(solver: str, bootstrap_b: int, seed: int,
                           only: list[str] | None = None,
                           available: set[str] | None = None) -> pd.DataFrame:
-    jobs = []
-    loaders = [load_bls_ces_panel, load_bls_cpi_panel,
-               lambda: load_crsp_panel(20 * 252),
-               lambda: load_forbes_billionaire_panels(None, FORBES_ARCHIVE_DAILY)[0]]
-    for label, item, loader in zip(PANEL_LABELS, FIGURE_ITEMS, loaders, strict=True):
+    results = []
+    cache = RUN_OUTPUT_CACHE / "msweep_shares.csv"
+    if only and cache.exists():
+        prior = pd.read_csv(cache)
+        results.append(checked_results(prior.loc[~prior.panel.isin(only)]))
+    for label, (item, loader) in PANELS.items():
         if only and label not in only:
             continue
         if available is not None and item not in available:
@@ -159,32 +183,24 @@ def compute_sweep_results(solver: str, bootstrap_b: int, seed: int,
             panel = loader()
         y, sizes = align_sizes_to_panel(panel.y, panel.sizes)
         shares = (sizes / sizes.sum()).to_numpy(float)
-        jobs.append((label, y.to_numpy(float), shares, m_grid(y.shape[1]),
-                     panel.frequency.lower() == "daily", str(y.columns[0]), str(y.columns[-1])))
-
-    results = []
-    cache = RUN_OUTPUT_CACHE / "msweep_shares.csv"
-    if only and cache.exists():
-        prior = pd.read_csv(cache)
-        results.append(prior.loc[~prior.panel.isin(only)])
-    for label, y, shares, grid, is_daily, start_date, last_date in jobs:
         results.append(sweep(
-            y, shares, grid, solver, label, is_daily=is_daily,
+            y.to_numpy(float), shares, m_grid(y.shape[1]), solver, label,
+            is_daily=panel.frequency.lower() == "daily",
             bootstrap_b=bootstrap_b, seed=seed,
-            start_date=start_date, last_date=last_date,
+            start_date=str(y.columns[0]), last_date=str(y.columns[-1]),
         ))
         # Preserve completed panels if a later, larger panel is interrupted.
-        pd.concat(results, ignore_index=True).to_csv(
-            RUN_OUTPUT_CACHE / "msweep_shares.csv", index=False
-        )
+        pd.concat(results, ignore_index=True).to_csv(cache, index=False)
     out = pd.concat(results, ignore_index=True) if results else pd.DataFrame(columns=SWEEP_COLUMNS)
-    out.to_csv(RUN_OUTPUT_CACHE / "msweep_shares.csv", index=False)  # cache, not output/
+    out.to_csv(cache, index=False)
     return out
 
 
 def render_plot(out: pd.DataFrame) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(10.5, 7.0))
-    for ax, label in zip(axes.ravel(), PANEL_LABELS):
+    positions, _, _ = hierarchy_positions()
+    labels = sorted(PANELS, key=lambda label: positions[PANELS[label][0]])
+    for ax, label in zip(axes.ravel(), labels):
         d = out[out["panel"].eq(label)].sort_values("M")
         if not d.empty:
             ax.plot(d["M"], d["share"].to_numpy(), marker="o", markersize=3.0, linewidth=1.7, color=TEAL)
@@ -208,18 +224,15 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=90210)
     parser.add_argument("--from-cache", action="store_true", help="Redraw the figure from cached msweep_shares.csv.")
     parser.add_argument("--available-only", action="store_true", help="Use applications in the current Figure 1 results.")
-    parser.add_argument("--only", nargs="+", choices=PANEL_LABELS,
+    parser.add_argument("--only", nargs="+", choices=PANELS,
                         help="Recompute selected panels and retain the other cached panels.")
     args = parser.parse_args()
     if args.from_cache:
-        out = pd.read_csv(RUN_OUTPUT_CACHE / "msweep_shares.csv")
+        out = checked_results(pd.read_csv(RUN_OUTPUT_CACHE / "msweep_shares.csv"))
     else:
         solver = choose_solver(args.solver)
         available = available_items() if args.available_only else None
         out = compute_sweep_results(solver, args.bootstrap_b, args.seed, args.only, available)
-    required = {"ci_low", "ci_high", "bootstrap_B", "block_length"}
-    if not required.issubset(out.columns):
-        raise ValueError("Cached M-sweep predates block-gradient inference; rerun without --from-cache.")
     render_plot(out)
     print(f"Wrote {OUTPUT_DIR / 'msweep_combined.pdf'} and {RUN_OUTPUT_CACHE / 'msweep_shares.csv'}", flush=True)
 

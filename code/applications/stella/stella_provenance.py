@@ -7,15 +7,20 @@ import json
 import shutil
 from pathlib import Path
 
+from project_paths import ROOT
+
+
+def source_path(path: Path, base: Path) -> str:
+    """Use project-relative names while retaining external calibration paths."""
+    resolved, base = path.resolve(), base.resolve()
+    return str(resolved.relative_to(base)) if resolved.is_relative_to(base) else str(resolved)
+
 
 def file_fingerprints(paths: list[Path], base: Path) -> dict[str, str]:
     result = {}
     for path in paths:
         resolved = path.resolve()
-        try:
-            name = str(resolved.relative_to(base.resolve()))
-        except ValueError:
-            name = str(resolved)
+        name = source_path(resolved, base)
         digest = hashlib.sha256()
         with resolved.open("rb") as handle:
             for block in iter(lambda: handle.read(1024 * 1024), b""):
@@ -33,11 +38,16 @@ def verify_fingerprints(expected: dict[str, str], base: Path) -> None:
 
 
 def archive_existing(path: Path) -> Path | None:
-    """Preserve every distinct prior result before replacing a canonical file."""
+    """Preserve prior results under archive/, keeping source paths and hashes."""
     if not path.exists():
         return None
+    path = path.resolve()
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    archive = path.parent / "stella_result_archive" / f"{path.stem}_{digest[:16]}{path.suffix}"
+    if path.is_relative_to(ROOT.resolve()):
+        relative = path.relative_to(ROOT.resolve())
+    else:
+        relative = Path("external") / path.relative_to(path.anchor)
+    archive = ROOT / "archive/stella_results" / relative.parent / f"{path.stem}_{digest[:16]}{path.suffix}"
     archive.parent.mkdir(parents=True, exist_ok=True)
     if not archive.exists():
         shutil.copy2(path, archive)

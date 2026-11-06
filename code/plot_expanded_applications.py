@@ -56,29 +56,20 @@ def main():
             inference="block bootstrap",
         )
 
-    elections = summary_rows("election_applications")
-    for label in ("Democratic votes by state", "Democratic votes by county"):
-        if label not in elections.index:
-            continue
-        r = elections.loc[label]
-        records[label] = dict(
-            estimate=r.MGP_share, low=r.CI90_low, high=r.CI90_high,
-            homoskedastic=r.Naive_homoscedastic,
-            heteroskedastic=r.Direct_diagonal,
-            inference="block bootstrap",
-        )
+    elections = {label: label for label in ("Democratic votes by state", "Democratic votes by county")}
+    for stem, entities in (("election_applications", elections),
+                           ("additional_applications", PANEL_ENTITIES)):
+        table = summary_rows(stem)
+        for label, entity in entities.items():
+            if entity not in table.index:
+                continue
+            r = table.loc[entity]
+            records[label] = dict(estimate=r.MGP_share, low=r.CI90_low, high=r.CI90_high,
+                                  homoskedastic=r.Naive_homoscedastic,
+                                  heteroskedastic=r.Direct_diagonal,
+                                  inference="block bootstrap")
 
-    add = summary_rows("additional_applications")
-    for label, entity in PANEL_ENTITIES.items():
-        if entity not in add.index:
-            continue
-        r = add.loc[entity]
-        records[label] = dict(estimate=r.MGP_share, low=r.CI90_low, high=r.CI90_high,
-                              homoskedastic=r.Naive_homoscedastic,
-                              heteroskedastic=r.Direct_diagonal,
-                              inference="block bootstrap")
-
-    positions, headings, ymax = hierarchy_positions()
+    positions, _, _ = hierarchy_positions()
 
     plotted = []
     for section, items in HIERARCHY:
@@ -90,11 +81,16 @@ def main():
                                                inference="missing_input"))))
     pd.DataFrame(plotted).to_csv(CACHE / "applications_coefficients_expanded_data.csv", index=False)
 
+    plot(plotted)
+
+
+def plot(plotted):
+    positions, headings, ymax = hierarchy_positions()
     fig, ax = plt.subplots(figsize=(10, 12.5))
     for row in plotted:
         if not np.isfinite(row["estimate"]):
             continue
-        p = row["y"]; lo = 100*row["low"]; hi = 100*row["high"]
+        p = positions[row["item"]]; lo = 100*row["low"]; hi = 100*row["high"]
         if np.isfinite(lo) and np.isfinite(hi):
             ax.hlines(p, 0, max(0, lo), color="#B9D9EE", lw=3.2, zorder=2)
             ax.hlines(p, lo, hi, color="#1f77b4", lw=3.2, zorder=3)

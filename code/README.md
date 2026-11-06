@@ -89,3 +89,6 @@ Derivative solves retry the same draw with general SDP solvers when needed.
 An unresolved solve stops the affected analysis before confidence intervals are
 computed. Bootstrap checkpoints resume only validated draws; older checkpoints
 without solver-success metadata are recomputed. Clean-panel caches are retained.
+M-sweep redraws also validate the inference version; plotting-only edits do not
+invalidate estimates. Retired research results belong in `archive/`, outside the
+active caches. Stella preserves replaced results under `archive/stella_results/`.

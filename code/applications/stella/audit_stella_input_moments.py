@@ -4,10 +4,12 @@
 import argparse
 import json
 
+import numpy as np
 import pandas as pd
 
 from applications.stella.audit_stella_growth_moments import growth_moments
-from applications.stella.paths import CALIBRATION, UNBALANCED
+from applications.stella.paths import CALIBRATION, DENSE, UNBALANCED
+from applications.stella.prepare_stella_calibration import SMALL
 from mgp_core import ROOT, RUN_OUTPUT_CACHE
 
 
@@ -19,20 +21,27 @@ SECTIONS = (
         ("Selected unbalanced firms", "current_vintage_top500_union_after_adf", 1610, ",.0f"),
         ("Balanced firms", "mapped_with_employment", 234, ",.0f"),
         ("Balanced share of sales", "current_vintage_selected_mean_share_of_unbalanced_sales", .45, ".2%"),
-    )),
-    ("Customer network", (
-        ("Suppliers with a matched client", "baseline_firms_with_clients", 58, ",.0f"),
-        ("Suppliers with a positive calibrated link", "baseline_firms_with_clients_positive_calibrated_share", 58, ",.0f"),
-        ("Mean total input share", "baseline_mean_total_input_share", .02, ".2%"),
-        ("Median total input share", "baseline_median_total_input_share", 0, ".2%"),
-    )),
-    ("Growth moments", (
         ("SD of aggregate sales growth (pp)", "aggregate_growth_pct", 2.56, ".2f"),
         ("SD of continuing-firm contribution (pp)", "continuing_contribution_pp", 2.21, ".2f"),
         ("SD of entry contribution (pp)", "entry_contribution_pp", 1.02, ".2f"),
         ("SD of exit contribution (pp)", "exit_contribution_pp", .52, ".2f"),
         ("GDP correlation: nominal sales", "top500_nominal_sales_gdp_correlation", .39, ".2f"),
         ("GDP correlation: real sales", "top500_real_sales_gdp_correlation", .39, ".2f"),
+    )),
+    ("Customer network", (
+        ("Suppliers with a matched client", "baseline_firms_with_clients", 58, ",.0f"),
+        ("Suppliers with a positive client link", "baseline_firms_with_clients_positive_calibrated_share", 58, ",.0f"),
+        ("Mean total input share", "baseline_mean_total_input_share", .02, ".2%"),
+        ("Median total input share", "baseline_median_total_input_share", 0, ".2%"),
+    )),
+    ("Dense sector-based network", (
+        ("Firms with counterparties", "dense_firms_with_suppliers", 234, ",.0f"),
+        ("Median column degree (suppliers)", "dense_median_suppliers", 215, ",.0f"),
+        ("Minimum column degree (suppliers)", "dense_min_suppliers", 190, ",.0f"),
+        ("Median row degree (clients)", "dense_median_clients", 215, ",.0f"),
+        ("Minimum row degree (clients)", "dense_min_clients", 190, ",.0f"),
+        ("Mean total input share", "dense_mean_total_input_share", .09, ".2%"),
+        ("Median total input share", "dense_median_total_input_share", .06, ".2%"),
     )),
 )
 
@@ -47,8 +56,19 @@ SHARED_TARGETS = {
 
 def reconstructed_moments():
     moments = json.loads((CALIBRATION / "diagnostics.json").read_text())
+    matrix = np.loadtxt(DENSE / "matrix_io.csv", delimiter=",")
+    economic = np.where(matrix > SMALL, matrix, 0)
+    suppliers = (economic > 0).sum(axis=0)
+    clients = (economic > 0).sum(axis=1)
     return {
         **moments,
+        "dense_firms_with_suppliers": int((suppliers > 0).sum()),
+        "dense_median_suppliers": float(np.median(suppliers)),
+        "dense_min_suppliers": int(suppliers.min()),
+        "dense_median_clients": float(np.median(clients)),
+        "dense_min_clients": int(clients.min()),
+        "dense_mean_total_input_share": float(economic.sum(axis=0).mean()),
+        "dense_median_total_input_share": float(np.median(economic.sum(axis=0))),
         **growth_moments(UNBALANCED),
     }
 

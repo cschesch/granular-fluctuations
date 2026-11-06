@@ -31,7 +31,9 @@ from applications.networks import (
     network_observed_stats,
     network_variance_matrix,
 )
-from applications.stella.stella_provenance import archive_existing, file_fingerprints, verify_fingerprints
+from applications.stella.stella_provenance import (
+    archive_existing, file_fingerprints, source_path, verify_fingerprints,
+)
 from applications.stella.paths import CALIBRATION
 
 
@@ -106,6 +108,25 @@ def load_dynamic_panel(calibration: Path, ids: pd.Index):
     return growth, full_shocks, matrices, initial_weights, network_v
 
 
+def one_pc_variance_decomposition(shocks: np.ndarray, network_v: np.ndarray) -> dict[str, float]:
+    """Extract one standardized PC, then propagate original-unit residual covariance."""
+    centered = shocks - shocks.mean(axis=0, keepdims=True)
+    scale = centered.std(axis=0, ddof=1)
+    if np.any(scale <= 0):
+        raise ValueError("PCA requires positive firm shock variances.")
+    u, _, _ = np.linalg.svd(centered / scale, full_matrices=False)
+    common = u[:, :1] @ (u[:, :1].T @ centered)
+    residual = centered - common
+    total_variance = float(np.sum(network_v * sample_cov(centered)))
+    common_variance = float(np.sum(network_v * sample_cov(common)))
+    residual_variance = float(np.sum(network_v * sample_cov(residual)))
+    np.testing.assert_allclose(common_variance + residual_variance, total_variance, rtol=1e-12)
+    return {
+        "one_pc_common_share": common_variance / total_variance,
+        "one_pc_residual_share": residual_variance / total_variance,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     # Baseline number of groups for this application.
@@ -115,7 +136,7 @@ def main() -> None:
     parser.add_argument("--solver", default="auto")
     parser.add_argument("--calibration-dir", type=Path, default=CALIBRATION)
     parser.add_argument("--output-stem", default=None,
-                        help="separate cache/output prefix for a reconstructed-sample sensitivity")
+                        help="cache prefix for a separate calibration")
     args = parser.parse_args()
     if args.M <= 0:
         raise ValueError("M must be positive.")
@@ -161,22 +182,22 @@ def main() -> None:
         "dynamic_recurrence_max_abs_error": recurrence_error,
     }
 
-    analysis_shocks = np.asarray(shocks, dtype=float)
-    block_length = analysis_block_length(analysis_shocks.shape[0])
+    block_length = analysis_block_length(shocks.shape[0])
     network_sizes = np.sqrt(np.maximum(np.diag(network_v), 0.0))
     if not np.all(network_sizes > 0):
         raise ValueError("Dynamic network contains a zero-exposure primitive.")
     exposure_shares = network_sizes / network_sizes.sum()
     weight_scale = float(network_sizes.sum() ** 2)
-    grouped, _, loads, _ = build_lpt_grouped_data(analysis_shocks.T, exposure_shares, args.M)
-    observed = network_observed_stats(grouped, analysis_shocks, network_v, weight_scale, solver)
-    sigma = sample_cov(analysis_shocks)
+    grouped, _, loads, _ = build_lpt_grouped_data(shocks.T, exposure_shares, args.M)
+    observed = network_observed_stats(grouped, shocks, network_v, weight_scale, solver)
+    sigma = sample_cov(shocks)
+    pc_comparison = one_pc_variance_decomposition(shocks, network_v)
     direct = network_direct_diagonal_share(sigma, network_v)
     homoskedastic = float(
         np.diag(network_v).sum() * np.diag(sigma).mean()
         / observed["aggregate_variance"]
     )
-    implied_aggregate_variance = float(np.sum(network_v * sigma))
+    implied_aggregate_variance = observed["aggregate_variance"]
     observed_aggregate_variance = float(np.var(observed_aggregate_growth, ddof=1))
     dynamic_diag.update({
         "stationary_implied_aggregate_variance": implied_aggregate_variance,
@@ -187,7 +208,7 @@ def main() -> None:
     })
     gradient = network_gradient_family(
         grouped,
-        analysis_shocks,
+        shocks,
         network_v,
         weight_scale,
         b=args.bootstrap_b,
@@ -204,6 +225,7 @@ def main() -> None:
         "T": len(shocks),
         "M": args.M,
         "block_length": block_length,
+        **pc_comparison,
         "inversion": "dynamic",
         "sales_variant": "sax12",
         "inversion_description": inversion_note,
@@ -211,13 +233,13 @@ def main() -> None:
         "top1_exposure_share": float(exposure_shares.max()),
         "top10_exposure_share": float(np.sort(exposure_shares)[-10:].sum()),
         "official_archive": "data/stella2015/source.zip",
-        "solver_validation": str((calibration / "dynamic_solution/benchmark_and_solver_diagnostics.json").relative_to(ROOT)),
+        "solver_validation": source_path(calibration / "dynamic_solution/benchmark_and_solver_diagnostics.json", ROOT),
         "input_revenue_field": sales_diagnostics.get("input_revenue_field", "saleq"),
         "remaining_outcome_gap": f"Uses current-vintage {sales_diagnostics.get('input_revenue_field', 'saleq')} adjusted with {sales_diagnostics.get('seasonal_adjustment_engine', 'X-13')}/X-11. The sax12 variant reproduces the released seasonal specification; the historical Compustat vintage and exact original executable build remain unavailable.",
         "seasonal_adjustment_engine": sales_diagnostics.get("seasonal_adjustment_engine", "X-13"),
         "replication_scope": f"Exact deposited calibration accounts, model equations, and shock recurrence applied to a current-vintage reconstructed {len(ids)}-firm panel and customer/sector mapping.",
         "sample_mode": calibration_diag["sample_mode"],
-        "calibration_directory": str(calibration.relative_to(ROOT)),
+        "calibration_directory": source_path(calibration, ROOT),
         "run_input_fingerprints": file_fingerprints(
             [calibration / name for name in (
                 "firm_mapping.csv", "nominal_saleq_levels.csv", "diagnostics.json",
@@ -225,16 +247,12 @@ def main() -> None:
             + [calibration / "dynamic_solution" / name for name in
                ("pii_a.csv", "xi.csv", "cap_rho.csv")], ROOT),
     }
-    diagnostic_path = ROOT / "output" / f"{output_stem}_sax12_diagnostics.json"
+    RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
+    diagnostic_path = RUN_OUTPUT_CACHE / f"{output_stem}_sax12_diagnostics.json"
     archive_existing(diagnostic_path)
     diagnostic_path.write_text(json.dumps(diagnostics, indent=2) + "\n")
-    pd.DataFrame(shocks, index=periods, columns=ids).to_pickle(
-        calibration / "epsilon_dynamic_sax12.pkl"
-    )
-
-    stem = output_stem
     summary = {
-        "dataset": f"{stem}_M{args.M}",
+        "dataset": f"{output_stem}_M{args.M}",
         "table_outcome": "Stella-style network-recovered firm output shocks",
         "frequency": "quarterly",
         "start_date": str(periods[0]),
@@ -251,6 +269,7 @@ def main() -> None:
         "direct_diagonal": direct,
         "naive": direct,
         "naive_homoscedastic": homoskedastic,
+        **pc_comparison,
         **{key: value for key, value in observed.items() if key not in {"solver", "status"}},
         **gradient,
         "inversion": "dynamic",
@@ -263,8 +282,7 @@ def main() -> None:
         "notes": diagnostics["replication_scope"] + " " + inversion_note + ".",
     }
     cap_dynamic_share_report(summary)
-    RUN_OUTPUT_CACHE.mkdir(parents=True, exist_ok=True)
-    summary_path = RUN_OUTPUT_CACHE / f"{stem}_M{args.M}_summary.pkl"
+    summary_path = RUN_OUTPUT_CACHE / f"{output_stem}_M{args.M}_summary.pkl"
     archive_existing(summary_path)
     pd.DataFrame([summary]).to_pickle(summary_path)
     print(pd.Series(summary).to_string())

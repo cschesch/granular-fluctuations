@@ -1,15 +1,46 @@
 #!/usr/bin/env python3
 """Independent algebra and disclosure checks for the single Herskovic path."""
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix
+import applications.herskovic.run_herskovic_firm_network as herskovic
 from applications.herskovic.run_herskovic_firm_network import (
     check_network, complete_rows, match_sizes, schur_recover,
 )
 
 
 class HerskovicChecks(unittest.TestCase):
+    def test_generated_sizes_exist_before_cache_fingerprint(self):
+        # The first run must use the same source fingerprint as later runs.
+        with TemporaryDirectory() as folder:
+            size_file = Path(folder) / 'sizes.mat'
+            (Path(folder) / 'network_W.npz').touch()
+            cached = dict(outcomes=np.ones((2, 1)), shares=np.ones(1),
+                          ids=pd.Index([1]), dates=pd.period_range('1980Q1', periods=2, freq='Q'),
+                          diagnostics={})
+
+            def prepare_sizes():
+                size_file.touch()
+                return np.ones(1)
+
+            def fingerprint(prefix, params, sources):
+                self.assertIn(size_file, sources)
+                self.assertTrue(size_file.is_file())
+                return Path(folder) / 'cache.pkl'
+
+            with patch.object(herskovic, 'SIZE_CACHE', size_file), \
+                    patch.object(herskovic, 'DERIVED', Path(folder)), \
+                    patch.object(herskovic, 'original_sizes', side_effect=prepare_sizes), \
+                    patch.object(herskovic, 'clean_panel_cache_path', side_effect=fingerprint), \
+                    patch.object(herskovic, 'read_clean_panel_cache', return_value=cached):
+                result = herskovic.build_herskovic_inputs()
+            np.testing.assert_array_equal(result.outcomes, cached['outcomes'])
+
     def test_schur_matches_direct_hidden_system(self):
         w = np.array([[0., .2, .8, 0.], [.4, 0., .3, .3],
                       [.1, .2, 0., .7], [.6, .4, 0., 0.]])
@@ -44,10 +75,27 @@ class HerskovicChecks(unittest.TestCase):
         known = csr_matrix(([.25], ([0], [1])), shape=(12, 12))
         identified = np.arange(12) < 2
         screened = np.arange(12) == 0
-        w, _ = complete_rows(sizes, known, screened, identified, {'Z': .1, 'psi': .184}, 123)
-        check_network(w, known, screened, identified)
-        self.assertEqual(w[0, 1], .25)
+        gamma = .918
+        w, _ = complete_rows(sizes, known, screened, identified, {'Z': .1, 'psi': .184, 'gamma': gamma}, 123)
+        check_network(w, known, screened, identified, gamma)
+        self.assertAlmostEqual(gamma * w[0, 1], .25)
         np.testing.assert_allclose(w.sum(axis=1), 1.)
+
+    def test_disclosed_sales_cannot_exceed_intermediate_sales(self):
+        known = csr_matrix(([.7, .25], ([0, 0], [1, 2])), shape=(3, 3))
+        with self.assertRaisesRegex(ValueError, 'exceeding gamma'):
+            complete_rows(np.ones(3), known, np.ones(3, bool), np.ones(3, bool),
+                          {'Z': .1, 'psi': .184, 'gamma': .918}, 123)
+
+    def test_disclosure_threshold_applies_to_gamma_times_weight(self):
+        # The extra public link has W=.11 but a raw sales share below .10.
+        w = csr_matrix([[0., .89, .11], [1., 0., 0.], [1., 0., 0.]])
+        known = csr_matrix(([.89*.9], ([0], [1])), shape=(3, 3))
+        check_network(w, known, np.array([True, False, False]), np.ones(3, bool), .9)
+        with self.assertRaises(AssertionError):
+            check_network(csr_matrix([[0., .88, .12], [1., 0., 0.], [1., 0., 0.]]),
+                          csr_matrix(([.88*.9], ([0], [1])), shape=(3, 3)),
+                          np.array([True, False, False]), np.ones(3, bool), .9)
 
 
 if __name__ == '__main__':

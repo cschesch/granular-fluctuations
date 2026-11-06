@@ -19,3 +19,22 @@ python -m applications.herskovic.prepare
 
 The MATLAB exporter is alongside that preparation script. Generated sizes,
 networks, and recovered shocks are stored under `code/.cache/`.
+
+## Disclosed sales shares in the completed network
+
+The completion uses Appendix A's structural normalization. The normalized
+network has row sums of one, and a supplier's raw sales share to customer
+`j` is `gamma * W[i,j]`. A disclosed share `q[i,j]` therefore fixes
+`W[i,j] = q[i,j] / gamma`. The remaining row weight is
+`1 - sum(q[i,j]) / gamma`, allocated across simulated customers using the
+calibrated size rule. Rows with disclosed totals above `gamma` raise an error.
+The disclosure screen on additional public customers applies to raw sales
+shares, requiring `gamma * W[i,j] < 0.10`.
+
+This is an explicit structural interpretation for our empirical completion.
+The paper's Section 4.6 discusses qualifications to interpreting its fitted
+reduced-form propagation coefficient as the intermediate-sales fraction.
+Network checks verify disclosed raw shares in `gamma * W` and normalization
+in `W`. The full propagation operator is `I - gamma * W`; Schur reduction
+sets primitive shocks outside the balanced panel to zero and retains their
+transmission effects.

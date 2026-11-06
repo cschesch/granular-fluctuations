@@ -12,25 +12,41 @@ import pandas as pd
 import build_applications_vertical as vertical
 import run_homoskedastic_mgp as hom
 from mgp_core import atomic_write_pickle
-from applications.figure_layout import HIERARCHY
+from applications.registry import PANEL_ENTITIES
 
 OUT = vertical.OUT
 CACHE = vertical.CACHE
 STEM = "table_applications_homoskedastic"
+ANNUAL_COMPUSTAT = {
+    "Sales (annual)": ("compustat_ann_sales", "compustat_annual_sale"),
+    "Productivity (annual)": ("compustat_ann_tfp", "compustat_annual_tfp"),
+}
+ENTITY_ITEMS = {entity: item for item, entity in PANEL_ENTITIES.items()}
+FIGURE_ITEMS = {application: ENTITY_ITEMS[entity]
+                for application, entity in vertical.ADDITIONAL_ENTITIES.items()}
+FIGURE_ITEMS.update({
+    "Sales (quarterly)": "Sales",
+    "Productivity (quarterly)": "Productivity",
+    "Stock returns": "Stocks",
+    "Billionaire wealth": "Forbes Billionaires",
+    "Consumer prices": "Price by item",
+    "Sector employment": "Employment by sector",
+})
+
+
+def figure_item(application):
+    """Join by application identity; figure and table orders are independent."""
+    return FIGURE_ITEMS.get(application, application.replace("--", "–"))
 
 
 def main():
     metadata = pd.read_csv(CACHE / "table_applications_vertical_data.csv")
     figure = pd.read_csv(CACHE / "applications_coefficients_expanded_data.csv").set_index("item")
     estimates = pd.read_csv(CACHE / "hmgp_figure1_data.csv").set_index("item")
-    hierarchy = dict(HIERARCHY)
     joined = []
     annual_path = CACHE / "hmgp_annual_compustat_table.pkl"
     annual = pd.read_pickle(annual_path) if annual_path.exists() else {}
     for section, applications in vertical.SECTIONS:
-        plotted_apps = [a for a in applications if a not in ("Sales (annual)", "Productivity (annual)")]
-        assert len(plotted_apps) == len(hierarchy[section])
-        mapping = dict(zip(plotted_apps, hierarchy[section]))
         for application in applications:
             selected = metadata[metadata.application.eq(application)]
             assert len(selected) == 1, application
@@ -38,16 +54,14 @@ def main():
             if pd.isna(row["estimate"]):
                 joined.append(dict(row, homoskedastic_estimate=np.nan, homoskedastic_ucl95=np.nan))
                 continue
-            if application in mapping:
-                item = mapping[application]
+            if application not in ANNUAL_COMPUSTAT:
+                item = figure_item(application)
                 q = estimates.loc[item]
                 original = figure.loc[item]
                 assert np.isclose(row["estimate"], original.estimate, atol=1e-12)
                 assert np.isclose(row["ci_high"], original.high, atol=1e-12)
             else:
-                prefix, clean = (("compustat_ann_sales", "compustat_annual_sale")
-                                 if application == "Sales (annual)" else
-                                 ("compustat_ann_tfp", "compustat_annual_tfp"))
+                prefix, clean = ANNUAL_COMPUSTAT[application]
                 inputs = hom.core_panel(prefix, clean)
                 signature = hashlib.sha256(inputs[0].tobytes() + inputs[1].tobytes()).hexdigest()
                 if application not in annual or annual[application].get("input_fingerprint") != signature:

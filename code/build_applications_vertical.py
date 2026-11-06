@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from compute_applications_coefficients import CACHE, core_estimates, summary_path, summary_rows
+from applications.figure_layout import APPROXIMATE_REPLICATIONS
 from mgp_core import OUTPUT_DIR as OUT
 
 SECTIONS = [
@@ -282,26 +283,19 @@ NETWORK_SPECS = {
     "Welburn et al. (2020)": ("welburn_firm_network_M10", "Firms", "Welburn et al."),
     "Herskovic et al. (2020)": ("herskovic_firm_network", "Firms", "Herskovic et al."),
 }
-APPROXIMATE_NETWORK_APPLICATIONS = {
-    "Acemoglu et al. (2012)",
-    "Carvalho--Gabaix (2013)",
-    "Stella (2015)",
-    "Herskovic et al. (2020)",
-    "Welburn et al. (2020)",
-}
 
 
 def network_rows() -> dict[str, dict[str, object]]:
     plotted = pd.read_csv(CACHE / "applications_coefficients_expanded_data.csv").set_index("item")
     out = {}
     for application, (stem, unit, source) in NETWORK_SPECS.items():
-        display_source = source + ("*" if application in APPROXIMATE_NETWORK_APPLICATIONS else "")
+        plot_name = application.replace("--", "–")
+        display_source = source + ("*" if plot_name in APPROXIMATE_REPLICATIONS else "")
         fields = out[application] = dict(unit=unit, source=display_source)
         path = summary_path(stem)
         if path is None:
             continue
         row = pd.read_pickle(path).iloc[0]
-        plot_name = application.replace("--", "–")
         estimate = plotted.loc[plot_name]
         fields.update({
             "sample": f"{row['start_date']}--{row['last_date']}",
